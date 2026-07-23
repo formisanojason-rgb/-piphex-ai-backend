@@ -125,7 +125,14 @@ const server = http.createServer(async (req, res) => {
       return json(res, 502, { error: "The library wards are flickering. Please try again." }, origin);
     }
 
-    const reply = String(result.output_text || "").trim();
+    const outputText = Array.isArray(result.output)
+      ? result.output
+          .flatMap(item => Array.isArray(item.content) ? item.content : [])
+          .filter(item => item.type === "output_text" && typeof item.text === "string")
+          .map(item => item.text)
+          .join("\n")
+      : "";
+    const reply = String(result.output_text || outputText || "").trim();
     return json(res, 200, { reply: reply || "The answer slipped between the shelves. Ask me again." }, origin);
   } catch (error) {
     const status = error.message === "too_large" ? 413 : 400;
