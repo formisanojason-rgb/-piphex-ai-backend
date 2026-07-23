@@ -94,6 +94,20 @@ function json(res, status, body, origin) {
   res.end(JSON.stringify(body));
 }
 
+function audio(res, status, body, origin) {
+  const headers = {
+    "Content-Type": "audio/mpeg",
+    "Cache-Control": "private, max-age=3600",
+    "X-Content-Type-Options": "nosniff"
+  };
+  if (origin && ALLOWED_ORIGINS.has(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers.Vary = "Origin";
+  }
+  res.writeHead(status, headers);
+  res.end(body);
+}
+
 function allowed(req) {
   const key = req.socket.remoteAddress || "unknown";
   const now = Date.now();
@@ -124,7 +138,7 @@ const server = http.createServer(async (req, res) => {
     return json(res, 200, { ok: true }, origin);
   }
 
-  if (req.method === "OPTIONS" && url.pathname === "/api/chat") {
+  if (req.method === "OPTIONS" && ["/api/chat", "/api/speech"].includes(url.pathname)) {
     if (!ALLOWED_ORIGINS.has(origin)) return json(res, 403, { error: "Origin not allowed." });
     res.writeHead(204, {
       "Access-Control-Allow-Origin": origin,
@@ -134,6 +148,37 @@ const server = http.createServer(async (req, res) => {
       Vary: "Origin"
     });
     return res.end();
+  }
+
+  if (req.method === "POST" && url.pathname === "/api/speech") {
+    if (!ALLOWED_ORIGINS.has(origin)) return json(res, 403, { error: "Origin not allowed." });
+    if (!OPENAI_API_KEY) return json(res, 503, { error: "Piphex is not configured yet." }, origin);
+    if (!allowed(req)) return json(res, 429, { error: "Piphex needs a short rest. Try again in a minute." }, origin);
+    try {
+      const body = await readJson(req);
+      const input = String(body.text || "").trim().slice(0, 700);
+      if (!input) return json(res, 400, { error: "Piphex has nothing to say." }, origin);
+      const response = await fetch("https://api.openai.com/v1/audio/speech", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-4o-mini-tts",
+          voice: "fable",
+          input,
+          response_format: "mp3",
+          instructions: "Act this line—do not narrate or announce it. You are Piphex, a tiny elderly male British fantasy imp with a huge personality. Speak naturally, warmly, and conversationally, as though leaning toward one traveler to share a delightful secret. Your weathered voice is lightly raspy and breathy, with playful mischief behind every phrase. Let thoughts flow together; vary the rhythm; use small amused pauses and an occasional restrained chuckle. Move briskly through jokes, then slow down and soften for mystery or danger. Keep it charming, intimate, spontaneous, and unmistakably human in timing."
+        })
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("OpenAI speech failed", response.status, errorText.slice(0, 200));
+        return json(res, 502, { error: "Piphex has temporarily lost his voice." }, origin);
+      }
+      return audio(res, 200, Buffer.from(await response.arrayBuffer()), origin);
+    } catch (error) {
+      const status = error.message === "too_large" ? 413 : 400;
+      return json(res, status, { error: status === 413 ? "That speech is too long." : "Piphex could not prepare that speech." }, origin);
+    }
   }
 
   if (req.method !== "POST" || url.pathname !== "/api/chat") {
