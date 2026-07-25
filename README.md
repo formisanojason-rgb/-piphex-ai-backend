@@ -1,15 +1,26 @@
-# Piphex AI backend
+# GizmoMedia AI
 
-This keeps `OPENAI_API_KEY` off the public Carrd page.
+Secure Node.js backend and Carrd widget for Gizmolife Media.
 
-## Deploy with GitHub and Render
+## Local test
 
-1. Create a new **private** GitHub repository named `piphex-ai-backend`.
-2. Upload these files. Never upload `.env.local`.
-3. In Render, create a new Blueprint or Web Service from that repository.
-4. Add the secret environment variable `OPENAI_API_KEY` in Render.
-5. Deploy and copy the service URL, such as `https://piphex-ai.onrender.com`.
-6. In `carrd-piphex-ai-embed.html`, replace `https://YOUR-PIPHEX-BACKEND.onrender.com`.
-7. Paste the full Carrd file into a Hidden / Body End Code Embed and publish.
+The API key is read from the workspace `.env.local` file. From this folder run:
 
-The server accepts requests only from `gizmolifemedia.com` and `www.gizmolifemedia.com`, limits message size and recent conversation history, and applies a simple per-IP rate limit.
+```powershell
+npm start
+```
+
+Then open `http://127.0.0.1:4173`.
+
+## Render settings
+
+- Service type: Web Service
+- Runtime: Node
+- Build command: leave blank or use `npm install`
+- Start command: `npm start`
+- Environment variable: `OPENAI_API_KEY` (paste the secret into Render; never put it in Carrd or GitHub)
+- Health check: `/health`
+
+After Render assigns the service address, replace `YOUR-RENDER-ADDRESS` in `carrd-embed.html`, then paste that code into a Carrd Embed element.
+
+The widget shows one sound control: **Mute**. The visitor opens or closes the panel by clicking the GizmoMedia character.

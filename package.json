@@ -1,11 +1,12 @@
 {
-  "name": "piphex-ai-backend",
+  "name": "gizmomedia-ai",
   "version": "1.0.0",
   "private": true,
+  "description": "Secure GizmoMedia chat and voice backend",
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js"
+    "check": "node --check server.js && node --check public/widget.js"
   },
   "engines": {
     "node": ">=20"
