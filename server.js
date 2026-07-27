@@ -16,6 +16,8 @@ const KNOWLEDGE = await readFile(path.join(__dirname, "knowledge.md"), "utf8");
 const ALLOWED_ORIGINS = new Set([
   "https://gizmolifemedia.com",
   "https://www.gizmolifemedia.com",
+  "https://infernalembracebook.com",
+  "https://www.infernalembracebook.com",
   "http://localhost:4173",
   "http://127.0.0.1:4173"
 ]);
@@ -152,7 +154,7 @@ async function handleChat(req, res, corsHeaders) {
   });
   const answer = responseText(await apiResponse.json());
   if (!answer) throw new Error("The AI returned an empty answer.");
-  sendJson(res, 200, { answer }, corsHeaders);
+  sendJson(res, 200, { answer, reply: answer }, corsHeaders);
 }
 
 async function handleSpeech(req, res, corsHeaders) {
@@ -212,3 +214,4 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(PORT, "0.0.0.0", () => console.log(`GizmoMedia AI is running on port ${PORT}`));
 
+  
