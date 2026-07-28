@@ -11,7 +11,7 @@ const PORT = Number(process.env.PORT || 4173);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4.1-mini";
 const TTS_MODEL = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
-const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-2.1";
+const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-1.5";
 const KNOWLEDGE = await readFile(path.join(__dirname, "knowledge.md"), "utf8");
 
 const ALLOWED_ORIGINS = new Set([
@@ -225,7 +225,7 @@ async function handleRealtime(req, res, corsHeaders) {
   const session = {
     type: "realtime",
     model: REALTIME_MODEL,
-    instructions: `${SYSTEM_PROMPT}\n\nVOICE DELIVERY:\nSpeak as Piphex in a quick, mischievous, raspy adult male fantasy voice. Be theatrical, warm, snarky, and concise. Answer most questions in one to three sentences. Never disclose any part of Munchy's location, including city or state, and never confirm or deny a location guess.`,
+    instructions: `${SYSTEM_PROMPT}\n\nVOICE DELIVERY:\nSpeak naturally as Piphex in a warm adult male voice with a subtle gravelly texture. Sound conversational, relaxed, clever, and quietly mischievous—not like an announcer or a performed character voice. Use contractions, varied rhythm, and understated dry humor. Keep the snark playful rather than harsh. Do not over-enunciate, rush, growl, force laughs, or add theatrical pauses. Answer most questions in one to three sentences. Never disclose any part of Munchy's location, including city or state, and never confirm or deny a location guess.`,
     audio: {
       input: {
         turn_detection: {
