@@ -127,8 +127,11 @@ function enforceLocationPrivacy(value) {
 
 function asksForMunchysLocation(value) {
   const text = String(value || "").toLowerCase();
-  return /munchy['’]?s|munchys/.test(text)
-    && /\b(?:address|city|state|zip|location|located|where|direction|directions|map|near|nearby|landmark|distance|travel|delivery area|coordinates?|region)\b/.test(text);
+  const mentionsMunchys = /munchy['’]?s|munchys/.test(text);
+  const usesLocationLanguage = /\b(?:address|city|state|zip|location|located|where|direction|directions|map|near|nearby|landmark|distance|travel|delivery area|coordinates?|region|county|country|municipality|town|neighbou?rhood|province|territory)\b/.test(text);
+  const asksToConfirmAGuess = /\b(?:is|was)\s+munchy['’]?s\s+(?:in|at)\b/.test(text)
+    || /\bmunchy['’]?s\s+(?:is|was)\s+(?:in|at)\b/.test(text);
+  return mentionsMunchys && (usesLocationLanguage || asksToConfirmAGuess);
 }
 
 async function openAI(pathname, options) {
