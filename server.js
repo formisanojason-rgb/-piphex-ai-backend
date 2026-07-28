@@ -9,6 +9,8 @@ loadLocalEnv(path.resolve(__dirname, "../../.env.local"));
 
 const PORT = Number(process.env.PORT || 4173);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
+const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "zdsl6WEvy1UZFIZ9lTNK";
 const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4.1-mini";
 const TTS_MODEL = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
 const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-1.5";
@@ -169,6 +171,15 @@ async function openAI(pathname, options) {
   return response;
 }
 
+async function ensureOk(response) {
+  if (!response.ok) {
+    const detail = await response.text();
+    console.error("Voice request failed", response.status, detail.slice(0, 500));
+    throw new Error(`The voice service returned ${response.status}.`);
+  }
+  return response;
+}
+
 async function handleChat(req, res, corsHeaders) {
   if (!withinRateLimit(req, "chat", 20)) return sendJson(res, 429, { error: "Please wait a moment before asking again." }, corsHeaders);
   const body = await readJson(req);
@@ -204,7 +215,23 @@ async function handleSpeech(req, res, corsHeaders) {
   const text = cleanText(body.text, 1500);
   if (!text) return sendJson(res, 400, { error: "No speech text was supplied." }, corsHeaders);
 
-  const apiResponse = await openAI("/v1/audio/speech", {
+  const apiResponse = ELEVENLABS_API_KEY
+    ? await ensureOk(await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE_ID)}/stream?output_format=mp3_44100_128&optimize_streaming_latency=3`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "xi-api-key": ELEVENLABS_API_KEY },
+      body: JSON.stringify({
+        text,
+        model_id: "eleven_flash_v2_5",
+        voice_settings: {
+          stability: 0.32,
+          similarity_boost: 0.8,
+          style: 0.25,
+          use_speaker_boost: true,
+          speed: 1.04
+        }
+      })
+    }))
+    : await openAI("/v1/audio/speech", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
