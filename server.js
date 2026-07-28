@@ -209,9 +209,9 @@ async function handleSpeech(req, res, corsHeaders) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: TTS_MODEL,
-      voice: "ash",
+      voice: "verse",
       input: text,
-      instructions: "Speak as Piphex in a spontaneous, natural conversation. Use a warm young-adult American male delivery with medium-high pitch and just a hint of rasp. Talk like a witty friend, not a performer: relaxed phrasing, varied rhythm, clear words, and effortless deadpan humor. Never use an announcer cadence, exaggerated character acting, forced gravel, or synthetic-sounding precision.",
+      instructions: "Speak like a witty young American man chatting with a friend. Keep it loose, warm, quick, and naturally expressive. Use casual phrasing and effortless deadpan timing. Never sound like an announcer, narrator, assistant, or staged character performance.",
       response_format: "mp3"
     })
   });
@@ -230,7 +230,7 @@ async function handleRealtime(req, res, corsHeaders) {
   const session = {
     type: "realtime",
     model: REALTIME_MODEL,
-    instructions: `${SYSTEM_PROMPT}\n\nVOICE DELIVERY:\nSound like a real young-adult American man having a spontaneous conversation. Keep the voice warm, friendly, medium-high, and only lightly raspy. Use relaxed phrasing, natural imperfections, varied rhythm, and effortless deadpan timing. Do not perform the character, over-enunciate, force gravel or laughs, use an announcer cadence, or sound rehearsed. Let Piphex's personality come from his words. Never disclose any part of Munchy's location, including city or state, and never confirm or deny a location guess.`,
+    instructions: `${SYSTEM_PROMPT}\n\nVOICE DELIVERY:\nTalk like a witty young American man chatting with a friend. Keep it loose, warm, quick, and naturally expressive, with casual phrasing and effortless deadpan timing. Never sound like an announcer, narrator, assistant, or staged character performance. Let Piphex's personality come from his words. Never disclose any part of Munchy's location, including city or state, and never confirm or deny a location guess.`,
     audio: {
       input: {
         turn_detection: {
@@ -239,7 +239,7 @@ async function handleRealtime(req, res, corsHeaders) {
           interrupt_response: true
         }
       },
-      output: { voice: "ash" }
+      output: { voice: "verse" }
     }
   };
 
