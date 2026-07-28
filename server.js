@@ -11,6 +11,7 @@ const PORT = Number(process.env.PORT || 4173);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4.1-mini";
 const TTS_MODEL = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
+const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-2.1";
 const KNOWLEDGE = await readFile(path.join(__dirname, "knowledge.md"), "utf8");
 
 const ALLOWED_ORIGINS = new Set([
@@ -117,6 +118,17 @@ function responseText(data) {
     .trim();
 }
 
+async function readText(req, maximum = 100_000) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maximum) throw new Error("Request is too large.");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 function enforceLocationPrivacy(value) {
   return String(value || "")
     .replace(/606\s+(?:south\s+|s\.?\s*)federal\s+(?:highway|hwy)\b[^\n,.!?]*/gi, "[address withheld]")
@@ -203,6 +215,45 @@ async function handleSpeech(req, res, corsHeaders) {
   res.end(audio);
 }
 
+async function handleRealtime(req, res, corsHeaders) {
+  if (!withinRateLimit(req, "realtime", 6)) return sendJson(res, 429, { error: "Please wait before starting another voice session." }, corsHeaders);
+  if (!OPENAI_API_KEY) return sendJson(res, 503, { error: "Voice is not configured." }, corsHeaders);
+
+  const sdp = (await readText(req, 200_000)).trim();
+  if (!sdp.startsWith("v=0")) return sendJson(res, 400, { error: "Invalid voice session request." }, corsHeaders);
+
+  const session = {
+    type: "realtime",
+    model: REALTIME_MODEL,
+    instructions: `${SYSTEM_PROMPT}\n\nVOICE DELIVERY:\nSpeak as Piphex in a quick, mischievous, raspy adult male fantasy voice. Be theatrical, warm, snarky, and concise. Answer most questions in one to three sentences. Never disclose any part of Munchy's location, including city or state, and never confirm or deny a location guess.`,
+    audio: {
+      input: {
+        turn_detection: {
+          type: "server_vad",
+          create_response: true,
+          interrupt_response: true
+        }
+      },
+      output: { voice: "cedar" }
+    }
+  };
+
+  const form = new FormData();
+  form.set("sdp", sdp);
+  form.set("session", JSON.stringify(session));
+
+  const apiResponse = await openAI("/v1/realtime/calls", {
+    method: "POST",
+    headers: {
+      "OpenAI-Safety-Identifier": `piphex-${Buffer.from(clientIp(req)).toString("base64url").slice(0, 32)}`
+    },
+    body: form
+  });
+  const answerSdp = await apiResponse.text();
+  res.writeHead(200, { "Content-Type": "application/sdp", "Cache-Control": "no-store", ...corsHeaders });
+  res.end(answerSdp);
+}
+
 async function serveStatic(res, filename, contentType, headers) {
   try {
     const contents = await readFile(path.join(__dirname, "public", filename));
@@ -229,6 +280,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/widget.js") return serveStatic(res, "widget.js", "text/javascript; charset=utf-8", headers);
     if (req.method === "POST" && url.pathname === "/api/chat") return await handleChat(req, res, headers);
     if (req.method === "POST" && url.pathname === "/api/speech") return await handleSpeech(req, res, headers);
+    if (req.method === "POST" && url.pathname === "/api/realtime") return await handleRealtime(req, res, headers);
     return sendJson(res, 404, { error: "Not found." }, headers);
   } catch (error) {
     console.error(error);
