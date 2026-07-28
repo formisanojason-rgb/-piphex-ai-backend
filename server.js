@@ -202,7 +202,7 @@ async function handleChat(req, res, corsHeaders) {
   const apiResponse = await openAI("/v1/responses", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: CHAT_MODEL, instructions: SYSTEM_PROMPT, input, max_output_tokens: 350 })
+    body: JSON.stringify({ model: CHAT_MODEL, instructions: SYSTEM_PROMPT, input, max_output_tokens: 220 })
   });
   const answer = enforceLocationPrivacy(responseText(await apiResponse.json()));
   if (!answer) throw new Error("The AI returned an empty answer.");
@@ -216,7 +216,7 @@ async function handleSpeech(req, res, corsHeaders) {
   if (!text) return sendJson(res, 400, { error: "No speech text was supplied." }, corsHeaders);
 
   const apiResponse = ELEVENLABS_API_KEY
-    ? await ensureOk(await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE_ID)}/stream?output_format=mp3_44100_128&optimize_streaming_latency=3`, {
+    ? await ensureOk(await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${encodeURIComponent(ELEVENLABS_VOICE_ID)}/stream?output_format=mp3_22050_32&optimize_streaming_latency=4`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "xi-api-key": ELEVENLABS_API_KEY },
       body: JSON.stringify({
@@ -225,8 +225,8 @@ async function handleSpeech(req, res, corsHeaders) {
         voice_settings: {
           stability: 0.32,
           similarity_boost: 0.8,
-          style: 0.25,
-          use_speaker_boost: true,
+          style: 0,
+          use_speaker_boost: false,
           speed: 1.04
         }
       })
