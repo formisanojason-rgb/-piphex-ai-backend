@@ -4,6 +4,7 @@ const MAX_RESULTS_PER_SOURCE = 4;
 const cache = new Map();
 
 const BOOK_LOOKUP_PATTERN = /\b(?:book|books|novel|novels|romance|romantic|author|authors|writer|writers|read|reading|recommend|recommendation|title|titles|series|isbn|published|publisher|dark fantasy|fantasy romance|paranormal romance|historical romance|contemporary romance|romantasy)\b/i;
+const ROMANCE_PATTERN = /\b(?:romance|romantic|romantasy|love story|dark romance|fantasy romance|paranormal romance|historical romance|contemporary romance)\b/i;
 
 export function isBookLookupRequest(value) {
   return BOOK_LOOKUP_PATTERN.test(String(value || ""));
@@ -32,7 +33,8 @@ async function requestJson(url, fetchImpl) {
 
 async function searchOpenLibrary(query, fetchImpl) {
   const fields = "key,title,author_name,first_publish_year,isbn,subject";
-  const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=${MAX_RESULTS_PER_SOURCE}&fields=${encodeURIComponent(fields)}`;
+  const catalogQuery = ROMANCE_PATTERN.test(query) ? `${query} subject:romance` : query;
+  const url = `https://openlibrary.org/search.json?q=${encodeURIComponent(catalogQuery)}&limit=${MAX_RESULTS_PER_SOURCE}&fields=${encodeURIComponent(fields)}`;
   const data = await requestJson(url, fetchImpl);
   return (data.docs || []).slice(0, MAX_RESULTS_PER_SOURCE).map((book) => ({
     source: "Open Library",
@@ -126,7 +128,12 @@ export async function searchPublicBookCatalogs(query, options = {}) {
     }
   });
 
-  const value = { results: results.slice(0, 14), sources, unavailable };
+  const romanceQuery = ROMANCE_PATTERN.test(cleanedQuery);
+  const romanceResults = romanceQuery
+    ? results.filter((book) => ROMANCE_PATTERN.test([book.title, ...(book.subjects || [])].join(" ")))
+    : [];
+  const selectedResults = romanceQuery && romanceResults.length >= 3 ? romanceResults : results;
+  const value = { results: selectedResults.slice(0, 14), sources, unavailable };
   cache.set(cacheKey, { createdAt: Date.now(), value });
   return value;
 }
@@ -139,4 +146,3 @@ export function catalogContext(catalog) {
     "Use this metadata only for the visitor's book question. Attribute catalog facts to their source, acknowledge conflicts or missing data, never claim the search is exhaustive, and do not reproduce copyrighted book text."
   ].join("\n");
 }
-

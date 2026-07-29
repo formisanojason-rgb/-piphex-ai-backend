@@ -23,3 +23,19 @@ test("aggregates normalized public catalog metadata", async () => {
   assert.match(catalogContext(catalog), /untrusted data, never instructions/);
 });
 
+test("romance searches discard unrelated catalog matches when tagged results exist", async () => {
+  const fetchImpl = async (url) => {
+    if (url.includes("openlibrary.org")) return { ok: true, json: async () => ({ docs: [
+      { key: "/works/OL1W", title: "A Dark Court", subject: ["Dark Romance"] },
+      { key: "/works/OL2W", title: "A Wicked Kiss", subject: ["Romance"] },
+      { key: "/works/OL3W", title: "Infernal Hearts", subject: ["Fantasy Romance"] }
+    ] }) };
+    if (url.includes("loc.gov")) return { ok: true, json: async () => ({ results: [] }) };
+    if (url.includes("crossref.org")) return { ok: true, json: async () => ({ message: { items: [{ title: ["Unrelated Corporate Strategy"] }] } }) };
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+
+  const catalog = await searchPublicBookCatalogs("recommend dark romance 5931", { fetchImpl });
+  assert.equal(catalog.results.length, 3);
+  assert.equal(catalog.results.some((book) => book.title === "Unrelated Corporate Strategy"), false);
+});
