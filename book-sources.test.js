@@ -31,11 +31,11 @@ test("romance searches discard unrelated catalog matches when tagged results exi
       { key: "/works/OL3W", title: "Infernal Hearts", subject: ["Fantasy Romance"] }
     ] }) };
     if (url.includes("loc.gov")) return { ok: true, json: async () => ({ results: [] }) };
-    if (url.includes("crossref.org")) return { ok: true, json: async () => ({ message: { items: [{ title: ["Unrelated Corporate Strategy"] }] } }) };
+    if (url.includes("crossref.org")) return { ok: true, json: async () => ({ message: { items: [{ title: ["Love in the Dark"] }] } }) };
     throw new Error(`Unexpected URL: ${url}`);
   };
 
   const catalog = await searchPublicBookCatalogs("recommend dark romance 5931", { fetchImpl });
   assert.equal(catalog.results.length, 3);
-  assert.equal(catalog.results.some((book) => book.title === "Unrelated Corporate Strategy"), false);
+  assert.equal(catalog.results.some((book) => book.title === "Love in the Dark"), false);
 });
