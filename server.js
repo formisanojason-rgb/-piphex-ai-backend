@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { catalogContext, isBookLookupRequest, searchPublicBookCatalogs } from "./book-sources.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadLocalEnv(path.resolve(__dirname, "../../.env.local"));
@@ -14,6 +15,7 @@ const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "zdsl6WEvy1UZFIZ9
 const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4.1-mini";
 const TTS_MODEL = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
 const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-1.5";
+const GOOGLE_BOOKS_API_KEY = process.env.GOOGLE_BOOKS_API_KEY || "";
 const KNOWLEDGE = await readFile(path.join(__dirname, "knowledge.md"), "utf8");
 
 const ALLOWED_ORIGINS = new Set([
@@ -199,10 +201,21 @@ async function handleChat(req, res, corsHeaders) {
     .filter((item) => item.content);
   input.push({ role: "user", content: message });
 
+  let liveBookContext = "";
+  if (isBookLookupRequest(message)) {
+    const catalog = await searchPublicBookCatalogs(message, { googleBooksApiKey: GOOGLE_BOOKS_API_KEY });
+    liveBookContext = catalogContext(catalog);
+  }
+
   const apiResponse = await openAI("/v1/responses", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: CHAT_MODEL, instructions: SYSTEM_PROMPT, input, max_output_tokens: 220 })
+    body: JSON.stringify({
+      model: CHAT_MODEL,
+      instructions: liveBookContext ? `${SYSTEM_PROMPT}\n\n${liveBookContext}` : SYSTEM_PROMPT,
+      input,
+      max_output_tokens: 260
+    })
   });
   const answer = enforceLocationPrivacy(responseText(await apiResponse.json()));
   if (!answer) throw new Error("The AI returned an empty answer.");
