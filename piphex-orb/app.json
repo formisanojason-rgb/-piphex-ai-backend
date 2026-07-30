@@ -44,7 +44,8 @@
           "microphonePermission": "Allow Piphex Orb to hear you when you tap the orb."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,0 +1,17 @@
+{
+  "cli": {
+    "version": ">= 21.4.0",
+    "appVersionSource": "local"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "channel": "preview",
+      "environment": "preview"
+    },
+    "production": {
+      "channel": "production",
+      "environment": "production"
+    }
+  }
+}
