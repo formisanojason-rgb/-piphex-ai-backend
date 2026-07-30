@@ -10,7 +10,10 @@
     "ios": {
       "icon": "./assets/images/piphex-orb-icon.png",
       "bundleIdentifier": "com.gizmolifemedia.piphexorb",
-      "supportsTablet": false
+      "supportsTablet": false,
+      "runtimeVersion": {
+        "policy": "appVersion"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -46,6 +49,16 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "13f467dc-9b84-45d8-b9b8-83929b51b2b8"
+      }
+    },
+    "owner": "gizmolifes-team",
+    "updates": {
+      "url": "https://u.expo.dev/13f467dc-9b84-45d8-b9b8-83929b51b2b8"
     }
   }
 }
