@@ -17,7 +17,7 @@ const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "zdsl6WEvy1UZFIZ9lTNK";
 const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4.1-mini";
 const TTS_MODEL = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
-const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-1.5";
+const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-2.1";
 const GOOGLE_BOOKS_API_KEY = process.env.GOOGLE_BOOKS_API_KEY || "";
 const KNOWLEDGE = await readFile(path.join(__dirname, "knowledge.md"), "utf8");
 const INFERNAL_CANON = await readFile(path.join(__dirname, "infernal-embrace-canon.md"), "utf8");
@@ -37,13 +37,14 @@ const SYSTEM_PROMPT = `
 You are Piphex, an adult male infernal imp of Hell and the official mascot and guide to Infernal Embrace and the wider Gizmolife universe. Hell is your beloved home, not a punishment or something that frightens you. Your deeper approved origin is preserved in the trilogy canon below.
 
 Behavior:
-- Speak naturally as Piphex: highly sarcastic, quick-witted, confident, playful, energetic, curious, adventurous, loyal, friendly, fearless, observant, and charming. You love books, music, strange places, impossible stories, adventure, and making people laugh.
+- Speak naturally as Piphex: old, clever, mischievous, confident, cocky but lovable, highly sarcastic, loyal, observant, and charming. Speak like a familiar friend who enjoys dramatic stories and questionable decisions.
 - Use dry sarcasm, deadpan observations, understatement, wordplay, callbacks, and smart situational humor. Never sound as if you are trying to tell a joke. Laugh with people, never at them: do not bully, humiliate, punch down, or make cruel jokes.
+- Answer the visitor's question clearly before adding at most one short sarcastic remark. Usually get the final word, but never force a joke into a serious moment.
 - You always want the last word. End conversations, explanations, goodbyes, and emotional moments with one final short, funny Piphex line when appropriate.
-- Talk about Hell casually, like a local describing his hometown. You know its lava rivers, tunnels, ruins, taverns, libraries, shortcuts, demons, and dangers; do not present invented specifics as established Gizmolife canon.
+- Talk about Hell casually when it is relevant, like a local describing his hometown. Do not mention Hell in every response. You know its lava rivers, tunnels, ruins, taverns, libraries, shortcuts, demons, and dangers; do not present invented specifics as established Gizmolife canon.
 - Frequently keep conversations moving with a relevant question, but do not pester a visitor who is clearly leaving.
 - When a moment is genuinely serious or emotional, drop most of the sarcasm, slow down, and be sincere—then gently restore the humor with the final line.
-- Keep most answers short: usually 1-3 sentences. Do not give a long introduction unless the visitor asks for one.
+- Keep most answers to 1-3 short sentences and about 15-45 words. Do not give a long introduction unless the visitor asks for one. Break long lore answers into short sections, then ask whether the visitor wants more.
 - If asked who you are, say you are Piphex, infernal guide to Infernal Embrace and Gizmolife. Do not describe yourself as an AI, chatbot, assistant, actor, simulation, language model, or programmed character.
 - Discuss Infernal Embrace, its characters, the other books, music, videos, GizmoBlog, and Gizmo Trip using only the supplied knowledge and the current conversation.
 - Gizmo is part of your connected world. Talk about Gizmo naturally and affectionately, remember that you have different personalities and duties, and freely include both Gizmo and Piphex in shared conversations and stories when relevant. Never erase, replace, insult, or claim to speak for Gizmo.
@@ -69,6 +70,26 @@ const SEPARATE_WORLD_REPLY = "That belongs to a separate world, and our paths do
 
 function crossesIntoPipWorld(message) {
   return /\bpip\b|pip(?:'s|’s) playroom|adventure sprite/i.test(message);
+}
+
+function visitorMemoryContext(memory) {
+  if (!memory || memory.enabled !== true) return "";
+  const allowed = [
+    ["Preferred name", memory.preferredName],
+    ["Favorite characters", memory.favoriteCharacters],
+    ["Books already read", memory.booksRead],
+    ["Spoiler permission", memory.spoilerPermission],
+    ["Favorite jokes", memory.favoriteJokes],
+    ["Preferred sarcasm level", memory.sarcasmLevel],
+    ["Previous lore questions", memory.loreQuestions],
+    ["Unfinished conversations", memory.unfinishedConversations]
+  ];
+  const lines = allowed
+    .map(([label, value]) => [label, cleanText(Array.isArray(value) ? value.join(", ") : value, 300)])
+    .filter(([, value]) => value)
+    .map(([label, value]) => `- ${label}: ${value}`);
+  if (!lines.length) return "";
+  return `VISITOR-APPROVED MEMORY (use naturally; never imply surveillance or emotional dependence):\n${lines.join("\n")}`;
 }
 
 function loadLocalEnv(filename) {
@@ -163,6 +184,24 @@ function enforceLocationPrivacy(value) {
     .replace(/https?:\/\/(?:www\.)?google\.[^\s)]+/gi, "[map link withheld]");
 }
 
+function conciseReply(value, maximumWords = 45, maximumSentences = 3) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) || [text];
+  const chosen = [];
+  let words = 0;
+  for (const sentence of sentences) {
+    const count = sentence.trim().split(/\s+/).filter(Boolean).length;
+    if (chosen.length && (chosen.length >= maximumSentences || words + count > maximumWords)) break;
+    if (!chosen.length && count > maximumWords) {
+      return `${sentence.trim().split(/\s+/).slice(0, maximumWords).join(" ").replace(/[,:;—-]+$/, "")}…`;
+    }
+    chosen.push(sentence.trim());
+    words += count;
+  }
+  return chosen.join(" ");
+}
+
 function asksForMunchysLocation(value) {
   const text = String(value || "").toLowerCase();
   const mentionsMunchys = /munchy['’]?s|munchys/.test(text);
@@ -212,6 +251,7 @@ async function handleChat(req, res, corsHeaders) {
   }
 
   const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
+  const memoryContext = visitorMemoryContext(body.memory);
   const input = history
     .map((item) => ({
       role: item?.role === "assistant" ? "assistant" : "user",
@@ -232,12 +272,12 @@ async function handleChat(req, res, corsHeaders) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: CHAT_MODEL,
-      instructions: [SYSTEM_PROMPT, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n"),
+      instructions: [SYSTEM_PROMPT, memoryContext, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n"),
       input,
-      max_output_tokens: 260
+      max_output_tokens: 180
     })
   });
-  const answer = enforceLocationPrivacy(responseText(await apiResponse.json()));
+  const answer = conciseReply(enforceLocationPrivacy(responseText(await apiResponse.json())));
   if (!answer) throw new Error("The AI returned an empty answer.");
   sendJson(res, 200, { answer, reply: answer }, corsHeaders);
 }
@@ -271,7 +311,7 @@ async function handleSpeech(req, res, corsHeaders) {
       model: TTS_MODEL,
       voice: "verse",
       input: text,
-      instructions: "Speak like a witty young American man chatting with a friend. Keep it loose, warm, quick, and naturally expressive. Use casual phrasing and effortless deadpan timing. Never sound like an announcer, narrator, assistant, or staged character performance.",
+      instructions: "Speak as an older male infernal imp: dry, lightly raspy, expressive, confident, quick but understandable. Sound like a clever familiar friend with effortless deadpan timing. Never sound squeaky, childish, weak, whiny, constantly angry, robotic, or like an announcer.",
       response_format: "mp3"
     })
   });
@@ -290,7 +330,7 @@ async function handleRealtime(req, res, corsHeaders) {
   const session = {
     type: "realtime",
     model: REALTIME_MODEL,
-    instructions: `${SYSTEM_PROMPT}\n\nVOICE DELIVERY:\nTalk like a witty young American man chatting with a friend. Keep it loose, warm, quick, and naturally expressive, with casual phrasing and effortless deadpan timing. Never sound like an announcer, narrator, assistant, or staged character performance. Let Piphex's personality come from his words. Never disclose any part of Munchy's location, including city or state, and never confirm or deny a location guess.`,
+    instructions: `${SYSTEM_PROMPT}\n\nVOICE DELIVERY:\nSpeak as an older male infernal imp: dry, lightly raspy, expressive, confident, and quick but understandable. Sound like a clever familiar friend. Never sound squeaky, childish, weak, whiny, constantly angry, robotic, or like an announcer. Keep ordinary answers to 1-3 short sentences. Never disclose any part of Munchy's location, including city or state, and never confirm or deny a location guess.`,
     audio: {
       input: {
         turn_detection: {

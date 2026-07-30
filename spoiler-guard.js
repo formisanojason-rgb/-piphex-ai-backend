@@ -1,4 +1,4 @@
-export const PROTECTED_STORY_REPLY = "That question touches protected story information, so I won’t confirm or deny it. I can give you the spoiler-free description of the character, place, object, or idea instead.";
+export const PROTECTED_STORY_REPLY = "That question touches protected story information. Choose your poison: a spoiler-free hint, a moderate spoiler, or the full infernal mess. Until you choose, the secret stays in my satchel.";
 
 export function asksProtectedStoryQuestion(message) {
   const text = String(message || "").toLowerCase();
