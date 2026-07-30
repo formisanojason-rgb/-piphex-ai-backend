@@ -25,3 +25,10 @@ test("realtime voice uses the current model and supports interruption", () => {
   assert.match(source, /interrupt_response: true/);
   assert.match(source, /server_vad/);
 });
+
+test("native Piphex Orb audio is transcribed only by the secure backend", () => {
+  assert.match(source, /gpt-4o-mini-transcribe/);
+  assert.match(source, /\/v1\/audio\/transcriptions/);
+  assert.match(source, /url\.pathname === "\/api\/transcribe"/);
+  assert.match(source, /readBuffer\(req, maximum = 10_000_000\)/);
+});

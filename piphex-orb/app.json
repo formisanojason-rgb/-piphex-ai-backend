@@ -1,0 +1,51 @@
+{
+  "expo": {
+    "name": "Piphex Orb",
+    "slug": "piphex-orb",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/piphex-orb-icon.png",
+    "scheme": "piphexorb",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "icon": "./assets/images/piphex-orb-icon.png",
+      "bundleIdentifier": "com.gizmolifemedia.piphexorb",
+      "supportsTablet": false
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#070506",
+          "image": "./assets/images/piphex-orb-icon.png",
+          "imageWidth": 220
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow Piphex Orb to hear you when you tap the orb."
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}

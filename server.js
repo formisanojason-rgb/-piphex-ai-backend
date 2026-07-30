@@ -17,6 +17,7 @@ const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY || "";
 const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "zdsl6WEvy1UZFIZ9lTNK";
 const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4.1-mini";
 const TTS_MODEL = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
+const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
 const REALTIME_MODEL = process.env.OPENAI_REALTIME_MODEL || "gpt-realtime-2.1";
 const GOOGLE_BOOKS_API_KEY = process.env.GOOGLE_BOOKS_API_KEY || "";
 const KNOWLEDGE = await readFile(path.join(__dirname, "knowledge.md"), "utf8");
@@ -163,6 +164,17 @@ function responseText(data) {
     .map((part) => part.text)
     .join("\n")
     .trim();
+}
+
+async function readBuffer(req, maximum = 10_000_000) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maximum) throw new Error("Request is too large.");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 async function readText(req, maximum = 100_000) {
@@ -320,6 +332,38 @@ async function handleSpeech(req, res, corsHeaders) {
   res.end(audio);
 }
 
+async function handleTranscribe(req, res, corsHeaders) {
+  if (!withinRateLimit(req, "transcribe", 12)) {
+    return sendJson(res, 429, { error: "Please wait a moment before speaking again." }, corsHeaders);
+  }
+  const contentType = String(req.headers["content-type"] || "").split(";")[0].toLowerCase();
+  const supported = new Set([
+    "audio/flac", "audio/mpeg", "audio/mp3", "audio/mp4", "audio/m4a",
+    "audio/ogg", "audio/wav", "audio/x-m4a", "audio/webm", "video/mp4"
+  ]);
+  if (!supported.has(contentType)) {
+    return sendJson(res, 415, { error: "That audio format is not supported." }, corsHeaders);
+  }
+  const audio = await readBuffer(req);
+  if (!audio.length) return sendJson(res, 400, { error: "No recording was supplied." }, corsHeaders);
+
+  const extension = contentType.includes("webm") ? "webm"
+    : contentType.includes("wav") ? "wav"
+      : contentType.includes("ogg") ? "ogg"
+        : contentType.includes("mpeg") || contentType.includes("mp3") ? "mp3"
+          : "m4a";
+  const form = new FormData();
+  form.set("file", new Blob([audio], { type: contentType }), `piphex-recording.${extension}`);
+  form.set("model", TRANSCRIBE_MODEL);
+  form.set("language", "en");
+  form.set("prompt", "Piphex, Infernal Embrace, Gizmolife, Gizmo, dark romance, fantasy, horror.");
+
+  const apiResponse = await openAI("/v1/audio/transcriptions", { method: "POST", body: form });
+  const text = cleanText((await apiResponse.json()).text, 1000);
+  if (!text) return sendJson(res, 422, { error: "I could not hear that clearly." }, corsHeaders);
+  return sendJson(res, 200, { text }, corsHeaders);
+}
+
 async function handleRealtime(req, res, corsHeaders) {
   if (!withinRateLimit(req, "realtime", 6)) return sendJson(res, 429, { error: "Please wait before starting another voice session." }, corsHeaders);
   if (!OPENAI_API_KEY) return sendJson(res, 503, { error: "Voice is not configured." }, corsHeaders);
@@ -385,6 +429,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/widget.js") return serveStatic(res, "widget.js", "text/javascript; charset=utf-8", headers);
     if (req.method === "POST" && url.pathname === "/api/chat") return await handleChat(req, res, headers);
     if (req.method === "POST" && url.pathname === "/api/speech") return await handleSpeech(req, res, headers);
+    if (req.method === "POST" && url.pathname === "/api/transcribe") return await handleTranscribe(req, res, headers);
     if (req.method === "POST" && url.pathname === "/api/realtime") return await handleRealtime(req, res, headers);
     return sendJson(res, 404, { error: "Not found." }, headers);
   } catch (error) {
