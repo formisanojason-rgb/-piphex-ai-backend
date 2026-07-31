@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const source = await readFile(new URL("./server.js", import.meta.url), "utf8");
 const knowledge = await readFile(new URL("./knowledge.md", import.meta.url), "utf8");
 const widget = await readFile(new URL("./public/widget.js", import.meta.url), "utf8");
+const orbSource = await readFile(new URL("./piphex-orb/src/app/index.tsx", import.meta.url), "utf8");
 
 test("Piphex follows the new concise old-imp personality", () => {
   assert.match(source, /old, clever, mischievous/);
@@ -12,6 +13,57 @@ test("Piphex follows the new concise old-imp personality", () => {
   assert.match(source, /Do not mention Hell in every response/);
   assert.match(source, /older male infernal imp/);
   assert.match(source, /conciseReply\(enforceLocationPrivacy/);
+});
+
+test("Piphex follows random conversation instead of forcing lore", () => {
+  assert.match(source, /well-rounded conversational character/);
+  assert.match(source, /Follow the visitor's current subject/);
+  assert.match(source, /do not end every reply with one/);
+  assert.match(orbSource, /infernal embrace\|gizmolife\|gizmo\|piphex\|lore\|canon/);
+  assert.doesNotMatch(orbSource, /if \(message\.includes\('\?'\)\) next\.loreQuestions/);
+});
+
+test("Piphex has cinematic presence without pretending to be conscious", () => {
+  assert.match(source, /Create a sense of presence/);
+  assert.match(source, /information, advice, companionship, and play/);
+  assert.match(source, /consistent harmless tastes and opinions/);
+  assert.match(source, /Use emotional restraint/);
+  assert.match(source, /never claim certainty about hidden feelings/);
+  assert.match(source, /Do not claim to be human or conscious/);
+  assert.match(source, /brief natural pauses/);
+});
+
+test("the deployed health endpoint identifies the cinematic memory release", () => {
+  assert.match(source, /release: "cinematic-memory-v1"/);
+});
+
+test("the orb has different character movement for each speaking state", () => {
+  assert.match(orbSource, /const driftX = useRef\(new Animated\.Value\(0\)\)/);
+  assert.match(orbSource, /const tilt = useRef\(new Animated\.Value\(0\)\)/);
+  assert.match(orbSource, /idle: \[/);
+  assert.match(orbSource, /listening: \[/);
+  assert.match(orbSource, /thinking: \[/);
+  assert.match(orbSource, /speaking: \[/);
+  assert.match(orbSource, /rotate: tilt\.interpolate/);
+  assert.match(orbSource, /const voiceSweep = useRef\(new Animated\.Value\(0\)\)/);
+  assert.match(orbSource, /orbState !== 'speaking'/);
+  assert.match(orbSource, /styles\.voiceLights/);
+});
+
+test("settings stay behind a corner gear instead of crowding the orb", () => {
+  assert.match(orbSource, /accessibilityLabel="Open settings"/);
+  assert.match(orbSource, /style=\{styles\.settingsGear\}/);
+  assert.match(orbSource, /visible=\{settingsOpen\}/);
+  assert.match(orbSource, /PIPHEX SETTINGS/);
+  assert.doesNotMatch(orbSource, /<Text style=\{styles\.controlText\}>\{soundOn \? 'VOICE ON'/);
+});
+
+test("personal memory can be reviewed, corrected, and selectively forgotten", () => {
+  assert.match(orbSource, /WHAT PIPHEX REMEMBERS/);
+  assert.match(orbSource, /Review, correct, or remove saved details/);
+  assert.match(orbSource, /FORGET THIS/);
+  assert.match(orbSource, /saveMemoryLedger/);
+  assert.match(orbSource, /These details stay privately on this phone/);
 });
 
 test("visitor memory is consent based and never IP based", () => {
