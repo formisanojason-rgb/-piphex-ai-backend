@@ -430,6 +430,7 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "GET" && url.pathname === "/health") return sendJson(res, 200, { ok: true, name: "Piphex AI" }, headers);
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) return serveStatic(res, "index.html", "text/html; charset=utf-8", headers);
+    if (req.method === "GET" && (url.pathname === "/privacy" || url.pathname === "/privacy.html")) return serveStatic(res, "privacy.html", "text/html; charset=utf-8", headers);
     if (req.method === "GET" && url.pathname === "/widget.js") return serveStatic(res, "widget.js", "text/javascript; charset=utf-8", headers);
     if (req.method === "POST" && url.pathname === "/api/chat") return await handleChat(req, res, headers);
     if (req.method === "POST" && url.pathname === "/api/speech") return await handleSpeech(req, res, headers);
