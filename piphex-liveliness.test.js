@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 const source = await readFile(new URL("./server.js", import.meta.url), "utf8");
 const knowledge = await readFile(new URL("./knowledge.md", import.meta.url), "utf8");
+const widget = await readFile(new URL("./public/widget.js", import.meta.url), "utf8");
 
 test("Piphex follows the new concise old-imp personality", () => {
   assert.match(source, /old, clever, mischievous/);
@@ -43,4 +44,11 @@ test("native Piphex Orb audio is transcribed only by the secure backend", () => 
   assert.match(source, /\/v1\/audio\/transcriptions/);
   assert.match(source, /url\.pathname === "\/api\/transcribe"/);
   assert.match(source, /readBuffer\(req, maximum = 10_000_000\)/);
+});
+
+test("website voice records and transcribes across modern browsers", () => {
+  assert.match(widget, /new MediaRecorder/);
+  assert.match(widget, /transcribeRecording/);
+  assert.match(widget, /Understanding what you said/);
+  assert.match(widget, /setTimeout\(beginVoiceTurn, 350\)/);
 });

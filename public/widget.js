@@ -156,6 +156,13 @@
   let remoteAudio = null;
   let connecting = false;
   let realtimeText = "";
+  let recorder = null;
+  let audioContext = null;
+  let monitorFrame = 0;
+  let voiceChunks = [];
+  let micEnabled = false;
+  let voiceProcessing = false;
+  let discardRecording = false;
 
   const setAnswer = text => {
     answer.textContent = soundOn ? "Piphex is speaking…" : text;
@@ -173,11 +180,15 @@
       if (!response.ok) throw new Error();
       audio = audio || new Audio();
       audio.src = URL.createObjectURL(await response.blob());
-      audio.onended = () => setStatus("Ready. Try not to waste the opportunity.");
+      audio.onended = () => {
+        setStatus("Ready. Try not to waste the opportunity.");
+        if (micEnabled) setTimeout(beginVoiceTurn, 350);
+      };
       await audio.play();
     } catch {
       answer.textContent = text;
       setStatus("Sound failed; text has reluctantly appeared.");
+      if (micEnabled) setTimeout(beginVoiceTurn, 350);
     }
   };
   const showReply = text => {
@@ -192,11 +203,78 @@
   updateMemoryButton();
 
   const stopVoice = () => {
+    micEnabled = false; discardRecording = true;
+    if (recorder?.state === "recording") recorder.stop();
+    cancelAnimationFrame(monitorFrame); audioContext?.close().catch(() => {});
     channel?.close(); peer?.close(); stream?.getTracks().forEach(track => track.stop());
-    channel = null; peer = null; stream = null; connecting = false;
+    channel = null; peer = null; stream = null; recorder = null; audioContext = null; connecting = false;
     mic.textContent = "Mic Off"; mic.setAttribute("aria-pressed", "false");
     orb.setAttribute("aria-pressed", "false"); form.hidden = false;
     setStatus("Microphone off. Keyboard ready.");
+  };
+
+  const recordingType = () => ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"].find(type => MediaRecorder.isTypeSupported(type)) || "";
+  const releaseRecordingHardware = () => {
+    cancelAnimationFrame(monitorFrame);
+    stream?.getTracks().forEach(track => track.stop());
+    audioContext?.close().catch(() => {});
+    recorder = null; stream = null; audioContext = null;
+  };
+  const transcribeRecording = async blob => {
+    const response = await fetch(`${API_BASE}transcribe`, { method: "POST", headers: { "Content-Type": blob.type || "audio/webm" }, body: blob });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "I could not hear that clearly.");
+    return String(data.text || "").trim();
+  };
+  const beginVoiceTurn = async () => {
+    if (!micEnabled || connecting || voiceProcessing || recorder || send.disabled) return;
+    if (!window.MediaRecorder || !window.AudioContext || !navigator.mediaDevices?.getUserMedia) {
+      stopVoice(); setStatus("This browser cannot record the microphone. The keyboard still works."); return;
+    }
+    connecting = true; setStatus("Requesting microphone permission…");
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+      discardRecording = false; voiceChunks = [];
+      const type = recordingType();
+      recorder = type ? new MediaRecorder(stream, { mimeType: type }) : new MediaRecorder(stream);
+      recorder.addEventListener("dataavailable", event => { if (event.data.size) voiceChunks.push(event.data); });
+      recorder.addEventListener("stop", async () => {
+        const discard = discardRecording;
+        const blob = new Blob(voiceChunks, { type: recorder?.mimeType || type || "audio/webm" });
+        releaseRecordingHardware(); connecting = false;
+        if (discard || !micEnabled) return;
+        if (blob.size < 1200) return setTimeout(beginVoiceTurn, 300);
+        voiceProcessing = true; setStatus("Understanding what you said…");
+        try {
+          const heard = await transcribeRecording(blob);
+          if (!heard) throw new Error("I could not hear that clearly.");
+          input.value = heard; voiceProcessing = false; form.requestSubmit();
+        } catch (error) {
+          voiceProcessing = false; answer.textContent = error.message || "I could not hear that clearly. Try again.";
+          setStatus("Listening…"); if (micEnabled) setTimeout(beginVoiceTurn, 350);
+        }
+      }, { once: true });
+
+      audioContext = new AudioContext();
+      const analyser = audioContext.createAnalyser(); analyser.fftSize = 1024;
+      audioContext.createMediaStreamSource(stream).connect(analyser);
+      const levels = new Uint8Array(analyser.fftSize);
+      const startedAt = performance.now(); let heardSpeech = false; let lastSpeechAt = startedAt;
+      const monitor = () => {
+        if (!recorder || recorder.state !== "recording") return;
+        analyser.getByteTimeDomainData(levels); let energy = 0;
+        for (const level of levels) { const sample = (level - 128) / 128; energy += sample * sample; }
+        const volume = Math.sqrt(energy / levels.length); const now = performance.now();
+        if (volume > 0.025) { if (!heardSpeech) stopAudio(); heardSpeech = true; lastSpeechAt = now; setStatus("Listening…"); }
+        if ((heardSpeech && now - lastSpeechAt > 1000) || (!heardSpeech && now - startedAt > 15000)) return recorder.stop();
+        monitorFrame = requestAnimationFrame(monitor);
+      };
+      recorder.start(250); connecting = false;
+      mic.textContent = "Mic On"; mic.setAttribute("aria-pressed", "true"); orb.setAttribute("aria-pressed", "true"); form.hidden = false;
+      setStatus("Listening… speak naturally."); monitorFrame = requestAnimationFrame(monitor);
+    } catch {
+      connecting = false; stopVoice(); setStatus("Microphone unavailable. Check browser permission; the keyboard still works.");
+    }
   };
   const onRealtimeEvent = event => {
     let data;
@@ -214,31 +292,9 @@
     if (data.type === "error") setStatus("Voice stumbled. Even infernal magic has paperwork.");
   };
   const startVoice = async () => {
-    if (connecting || peer?.connectionState === "connected") return;
-    if (!window.RTCPeerConnection || !navigator.mediaDevices?.getUserMedia) {
-      setStatus("This browser does not support live voice."); return;
-    }
-    connecting = true; setStatus("Requesting microphone permission…");
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-      peer = new RTCPeerConnection();
-      stream.getAudioTracks().forEach(track => peer.addTrack(track, stream));
-      remoteAudio = remoteAudio || new Audio(); remoteAudio.autoplay = true; remoteAudio.muted = !soundOn;
-      peer.ontrack = event => { remoteAudio.srcObject = event.streams[0]; };
-      channel = peer.createDataChannel("oai-events"); channel.onmessage = onRealtimeEvent;
-      channel.onopen = () => {
-        connecting = false; mic.textContent = "Mic On"; mic.setAttribute("aria-pressed", "true"); orb.setAttribute("aria-pressed", "true"); form.hidden = true;
-        setStatus("Listening… interrupt whenever you like.");
-        channel.send(JSON.stringify({ type: "response.create", response: { output_modalities: ["audio"], instructions: `Greet the visitor in one lively sentence. ${memory.enabled && memory.preferredName ? `Their preferred name is ${memory.preferredName}.` : ""}` } }));
-      };
-      peer.onconnectionstatechange = () => { if (["failed", "closed", "disconnected"].includes(peer?.connectionState)) stopVoice(); };
-      const offer = await peer.createOffer(); await peer.setLocalDescription(offer);
-      const response = await fetch(`${API_BASE}realtime`, { method: "POST", headers: { "Content-Type": "application/sdp" }, body: peer.localDescription?.sdp || offer.sdp });
-      if (!response.ok) throw new Error();
-      await peer.setRemoteDescription({ type: "answer", sdp: await response.text() });
-    } catch {
-      stopVoice(); setStatus("Microphone unavailable. The keyboard still works, tragically.");
-    } finally { connecting = false; }
+    if (micEnabled || connecting) return;
+    micEnabled = true; mic.textContent = "Mic On"; mic.setAttribute("aria-pressed", "true"); orb.setAttribute("aria-pressed", "true");
+    await beginVoiceTurn();
   };
 
   const openPanel = () => {
@@ -253,8 +309,8 @@
   more.addEventListener("click", () => box.classList.contains("open") ? closePanel() : openPanel());
   image.addEventListener("click", openPanel); close.addEventListener("click", closePanel);
   document.addEventListener("keydown", event => { if (event.key === "Escape") closePanel(); });
-  mic.addEventListener("click", () => peer ? stopVoice() : startVoice());
-  orb.addEventListener("click", () => peer ? stopVoice() : startVoice());
+  mic.addEventListener("click", () => micEnabled ? stopVoice() : startVoice());
+  orb.addEventListener("click", () => micEnabled ? stopVoice() : startVoice());
   sound.addEventListener("click", () => {
     soundOn = !soundOn; sound.textContent = soundOn ? "Sound On" : "Sound Off"; sound.setAttribute("aria-pressed", String(soundOn));
     if (!soundOn) stopAudio(); if (remoteAudio) remoteAudio.muted = !soundOn;
@@ -293,7 +349,10 @@
       showReply(reply); history.push({ role: "user", content: message }, { role: "assistant", content: reply }); if (history.length > 12) history = history.slice(-12);
     } catch (error) {
       answer.textContent = error.message || "The library wards are flickering. Try again shortly."; setStatus("Connection trouble");
-    } finally { send.disabled = false; box.classList.remove("thinking"); input.focus(); }
+    } finally {
+      send.disabled = false; box.classList.remove("thinking"); input.focus();
+      if (micEnabled && !soundOn) setTimeout(beginVoiceTurn, 350);
+    }
   });
 
   answer.textContent = memory.enabled && memory.preferredName ? `Welcome back, ${memory.preferredName}. The books remembered you. I considered objecting.` : "Piphex is nearby. Press More when your judgment fails.";
