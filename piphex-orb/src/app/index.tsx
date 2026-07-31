@@ -2,9 +2,11 @@ import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
   setAudioModeAsync,
+  setIsAudioActiveAsync,
   useAudioPlayer,
   useAudioPlayerStatus,
   useAudioRecorder,
+  useAudioRecorderState,
 } from 'expo-audio';
 import { fetch as expoFetch } from 'expo/fetch';
 import { File, Paths } from 'expo-file-system';
@@ -28,6 +30,9 @@ import {
 const API_BASE = 'https://piphex-ai.onrender.com';
 const OPENING_LINE = "Well, look what the gates of Hell let back in. Welcome—the books have lowered their expectations accordingly.";
 const HISTORY_KEY = 'piphex-orb-history-v1';
+const SPEECH_LEVEL_DB = -48;
+const END_OF_SPEECH_MS = 1100;
+const MIN_SPEECH_MS = 350;
 
 type OrbState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
 type Message = { role: 'user' | 'assistant'; content: string };
@@ -42,7 +47,8 @@ async function errorMessage(response: Response, fallback: string) {
 }
 
 export default function PiphexOrbScreen() {
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorder = useAudioRecorder({ ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true });
+  const recorderState = useAudioRecorderState(recorder, 120);
   const player = useAudioPlayer(null, { updateInterval: 100 });
   const playerStatus = useAudioPlayerStatus(player);
   const pulse = useRef(new Animated.Value(1)).current;
@@ -54,6 +60,23 @@ export default function PiphexOrbScreen() {
   const [statusText, setStatusText] = useState('Tap the orb and speak');
   const [soundOn, setSoundOn] = useState(true);
   const hasGreeted = useRef(false);
+  const heardSpeechAt = useRef<number | null>(null);
+  const lastSpeechAt = useRef<number | null>(null);
+  const startingListen = useRef(false);
+  const finishingListen = useRef(false);
+
+  async function preparePlaybackAudio() {
+    await setIsAudioActiveAsync(true);
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      allowsRecording: false,
+      shouldRouteThroughEarpiece: false,
+      shouldPlayInBackground: false,
+      interruptionMode: 'doNotMix',
+    });
+    player.muted = false;
+    player.volume = 1;
+  }
 
   const stateColor = useMemo(() => ({
     idle: '#71f5b1', listening: '#50e8ff', thinking: '#c183ff', speaking: '#ffd364', error: '#ff6b66',
@@ -64,12 +87,7 @@ export default function PiphexOrbScreen() {
       if (!value) return;
       try { setHistory(JSON.parse(value).slice(-12)); } catch { /* Ignore damaged local history. */ }
     });
-    setAudioModeAsync({
-      playsInSilentMode: true,
-      allowsRecording: true,
-      shouldPlayInBackground: false,
-      allowsBackgroundRecording: false,
-    }).catch(() => undefined);
+    preparePlaybackAudio().catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -82,9 +100,30 @@ export default function PiphexOrbScreen() {
   useEffect(() => {
     if (playerStatus.didJustFinish && orbState === 'speaking') {
       setOrbState('idle');
-      setStatusText('Tap the orb and speak');
+      setStatusText('Listening… speak naturally');
+      void startListening();
     }
   }, [playerStatus.didJustFinish, orbState]);
+
+  useEffect(() => {
+    if (orbState !== 'listening' || !recorderState.isRecording || finishingListen.current) return;
+    const level = recorderState.metering;
+    if (typeof level !== 'number') return;
+
+    const now = Date.now();
+    if (level >= SPEECH_LEVEL_DB) {
+      heardSpeechAt.current ??= now;
+      lastSpeechAt.current = now;
+      setStatusText('I hear you…');
+      return;
+    }
+
+    const began = heardSpeechAt.current;
+    const lastHeard = lastSpeechAt.current;
+    if (began && lastHeard && now - began >= MIN_SPEECH_MS && now - lastHeard >= END_OF_SPEECH_MS) {
+      void finishListening();
+    }
+  }, [orbState, recorderState.isRecording, recorderState.metering]);
 
   useEffect(() => {
     const animation = Animated.loop(Animated.sequence([
@@ -112,11 +151,13 @@ export default function PiphexOrbScreen() {
     if (!soundOn) {
       setOrbState('idle');
       setStatusText(text);
+      setTimeout(() => void startListening(), 250);
       return;
     }
     setOrbState('speaking');
     setStatusText(text);
     try {
+      await preparePlaybackAudio();
       const response = await expoFetch(`${API_BASE}/api/speech`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
       });
@@ -125,10 +166,13 @@ export default function PiphexOrbScreen() {
       audioFile.create({ overwrite: true });
       audioFile.write(new Uint8Array(await response.arrayBuffer()));
       player.replace(audioFile.uri);
+      player.muted = false;
+      player.volume = 1;
       player.play();
     } catch (error) {
       setOrbState('error');
       setStatusText(error instanceof Error ? error.message : 'Piphex lost his voice for a moment.');
+      setTimeout(() => void startListening(), 700);
     }
   }
 
@@ -152,37 +196,72 @@ export default function PiphexOrbScreen() {
     } catch (error) {
       setOrbState('error');
       setStatusText(error instanceof Error ? error.message : 'Piphex needs a moment.');
+      setTimeout(() => void startListening(), 700);
     }
   }
 
   async function startListening() {
+    if (startingListen.current || finishingListen.current || recorderState.isRecording) return;
+    startingListen.current = true;
     player.pause();
-    const permission = await requestRecordingPermissionsAsync();
-    if (!permission.granted) {
-      setOrbState('error');
-      setStatusText('Microphone permission is needed so Piphex can hear you.');
-      return;
+    try {
+      const permission = await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        setOrbState('error');
+        setStatusText('Microphone permission is needed so Piphex can hear you.');
+        return;
+      }
+      await setIsAudioActiveAsync(true);
+      await setAudioModeAsync({
+        playsInSilentMode: true,
+        allowsRecording: true,
+        shouldRouteThroughEarpiece: false,
+        shouldPlayInBackground: false,
+        allowsBackgroundRecording: false,
+        interruptionMode: 'doNotMix',
+      });
+      heardSpeechAt.current = null;
+      lastSpeechAt.current = null;
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setOrbState('listening');
+      setStatusText('Listening… speak naturally');
+    } finally {
+      startingListen.current = false;
     }
-    await recorder.prepareToRecordAsync();
-    recorder.record({ forDuration: 60 });
-    setOrbState('listening');
-    setStatusText('Listening… tap again when finished');
   }
 
   async function finishListening() {
-    setOrbState('thinking');
-    setStatusText('Piphex is translating mortal noises…');
-    await recorder.stop();
-    const uri = recorder.uri;
-    if (!uri) throw new Error('The recording could not be saved.');
-    const recording = new File(uri);
-    const contentType = Platform.OS === 'web' ? 'audio/webm' : 'audio/m4a';
-    const response = await expoFetch(`${API_BASE}/api/transcribe`, {
-      method: 'POST', headers: { 'Content-Type': contentType }, body: recording,
-    });
-    if (!response.ok) throw new Error(await errorMessage(response, 'Piphex could not hear that clearly.'));
-    const body = await response.json();
-    await askPiphex(String(body.text || ''));
+    if (finishingListen.current || !recorderState.isRecording) return;
+    finishingListen.current = true;
+    try {
+      setOrbState('thinking');
+      setStatusText('Piphex is translating mortal noises…');
+      await recorder.stop();
+      const uri = recorder.uri;
+      if (!uri) throw new Error('The recording could not be saved.');
+      const recording = new File(uri);
+      const contentType = Platform.OS === 'web' ? 'audio/webm' : 'audio/m4a';
+      const response = await expoFetch(`${API_BASE}/api/transcribe`, {
+        method: 'POST', headers: { 'Content-Type': contentType }, body: recording,
+      });
+      if (!response.ok) throw new Error(await errorMessage(response, 'Piphex could not hear that clearly.'));
+      const body = await response.json();
+      const transcript = String(body.text || '').trim();
+      if (!transcript) {
+        setOrbState('idle');
+        setStatusText('Listening… speak naturally');
+        setTimeout(() => void startListening(), 250);
+        return;
+      }
+      await askPiphex(transcript);
+    } catch (error) {
+      setOrbState('error');
+      setStatusText(error instanceof Error ? error.message : 'Piphex could not hear that clearly.');
+      setTimeout(() => void startListening(), 700);
+    } finally {
+      finishingListen.current = false;
+    }
   }
 
   async function pressOrb() {
@@ -190,11 +269,8 @@ export default function PiphexOrbScreen() {
       if (orbState === 'speaking') {
         player.pause();
         setOrbState('idle');
-        setStatusText('Interrupted. How delightfully rude. Tap to speak.');
-      } else if (orbState === 'listening') {
-        await finishListening();
-      } else if (orbState !== 'thinking') {
-        await startListening();
+        setStatusText('Interrupted. How delightfully rude. Listening…');
+        setTimeout(() => void startListening(), 150);
       }
     } catch (error) {
       setOrbState('error');
@@ -211,12 +287,12 @@ export default function PiphexOrbScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} onTouchStart={() => { if (orbState === 'speaking') void pressOrb(); }}>
       <View style={styles.embersTop} />
       <Text style={styles.eyebrow}>PIPHEX</Text>
       <Text style={styles.title}>THE INFERNAL ORB</Text>
 
-      <Pressable accessibilityRole="button" accessibilityLabel="Talk to Piphex" onPress={pressOrb} style={styles.orbButton}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Interrupt Piphex" onPress={pressOrb} style={styles.orbButton}>
         <Animated.View style={[styles.glow, { backgroundColor: stateColor, opacity: glow, transform: [{ scale: pulse }] }]} />
         <Animated.View style={{ transform: [{ scale: pulse }] }}>
           <Image source={require('../../assets/images/piphex-orb-icon.png')} style={styles.orb} />
@@ -231,7 +307,7 @@ export default function PiphexOrbScreen() {
         <Pressable style={styles.control} onPress={() => { player.pause(); setSoundOn((value) => !value); }}><Text style={styles.controlIcon}>{soundOn ? '◉' : '○'}</Text><Text style={styles.controlText}>{soundOn ? 'VOICE ON' : 'VOICE OFF'}</Text></Pressable>
       </View>
 
-      <Text style={styles.footer}>Tap once to listen · tap again to answer</Text>
+      <Text style={styles.footer}>Hands-free listening · tap anywhere to interrupt</Text>
 
       <Modal transparent visible={sheetOpen} animationType="slide" onRequestClose={() => setSheetOpen(false)}>
         <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>

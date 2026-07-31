@@ -1,0 +1,13 @@
+node_modules/
+.expo/
+dist/
+web-build/
+.git/
+.claude/
+.vscode/
+piphex-orb-qr.png
+piphex-orb-qr.svg
+*.tsbuildinfo
+*.log
+.env*.local
+
