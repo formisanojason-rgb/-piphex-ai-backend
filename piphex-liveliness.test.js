@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 const source = await readFile(new URL("./server.js", import.meta.url), "utf8");
+const knowledge = await readFile(new URL("./knowledge.md", import.meta.url), "utf8");
 
 test("Piphex follows the new concise old-imp personality", () => {
   assert.match(source, /old, clever, mischievous/);
@@ -17,7 +18,18 @@ test("visitor memory is consent based and never IP based", () => {
   assert.match(memoryFunction, /memory\.enabled !== true/);
   assert.match(memoryFunction, /VISITOR-APPROVED MEMORY/);
   assert.match(memoryFunction, /Preferred name/);
+  assert.match(memoryFunction, /Favorite topics/);
+  assert.match(memoryFunction, /Conversation style/);
+  assert.match(memoryFunction, /Familiarity count/);
   assert.doesNotMatch(memoryFunction, /clientIp|x-forwarded-for/);
+});
+
+test("Piphex retains Munchy's food knowledge and only approved meatball humor", () => {
+  assert.match(knowledge, /Munchy's Pizza & Wings Knowledge/i);
+  assert.match(knowledge, /not homemade/i);
+  assert.match(knowledge, /comedic opinion/i);
+  assert.match(knowledge, /false rumor/i);
+  assert.match(source, /Munchy's location privacy is absolute/);
 });
 
 test("realtime voice uses the current model and supports interruption", () => {

@@ -15,6 +15,9 @@
     spoilerPermission: "spoiler-free",
     favoriteJokes: "",
     sarcasmLevel: "medium",
+    favoriteTopics: "",
+    conversationStyle: "natural",
+    interactionCount: 0,
     loreQuestions: "",
     unfinishedConversations: ""
   };
@@ -31,6 +34,7 @@
   const safeList = value => String(value || "").trim().slice(0, 240);
   const rememberFrom = message => {
     if (!memory.enabled) return;
+    memory.interactionCount = Math.min(10000, Number(memory.interactionCount || 0) + 1);
     const rules = [
       [/\b(?:my name is|call me)\s+([a-z][a-z '-]{0,38})/i, "preferredName"],
       [/\bmy favorite character is\s+(.{1,80})/i, "favoriteCharacters"],
@@ -41,7 +45,16 @@
       const match = message.match(pattern);
       if (match) memory[key] = safeList(match[1].replace(/[.!?]+$/, ""));
     }
-    memory.loreQuestions = safeList([memory.loreQuestions, message].filter(Boolean).slice(-2).join(" | "));
+    const favoriteTopic = message.match(/\b(?:i (?:really )?(?:like|love)|my favorite (?:thing|topic) is)\s+(.{1,100})/i);
+    if (favoriteTopic) memory.favoriteTopics = safeList(favoriteTopic[1].replace(/[.!?]+$/, ""));
+    if (/\b(?:be|use) (?:more|extra) sarcastic\b|\bturn (?:up|on) (?:the )?sarcasm\b/i.test(message)) memory.sarcasmLevel = "high";
+    if (/\b(?:be|use) less sarcastic\b|\bturn down (?:the )?sarcasm\b/i.test(message)) memory.sarcasmLevel = "low";
+    if (/\b(?:normal|medium) sarcasm\b/i.test(message)) memory.sarcasmLevel = "medium";
+    if (/\b(?:spoilers are|spoilers? (?:are )?okay|allow spoilers|you can spoil)\b/i.test(message)) memory.spoilerPermission = "spoilers allowed";
+    if (/\b(?:no spoilers|spoiler[- ]free|do not spoil|don't spoil)\b/i.test(message)) memory.spoilerPermission = "spoiler-free";
+    if (/\b(?:keep it short|short answers|be concise)\b/i.test(message)) memory.conversationStyle = "concise";
+    if (/\b(?:tell me more|more detail|detailed answers)\b/i.test(message)) memory.conversationStyle = "detailed";
+    if (message.includes("?")) memory.loreQuestions = safeList([memory.loreQuestions, message].filter(Boolean).slice(-2).join(" | "));
     saveMemory();
   };
   const memorySummary = () => {
@@ -52,6 +65,8 @@
       memory.booksRead && `books read: ${memory.booksRead}`,
       `spoilers: ${memory.spoilerPermission}`,
       `sarcasm: ${memory.sarcasmLevel}`,
+      memory.favoriteTopics && `favorite topics: ${memory.favoriteTopics}`,
+      `answer style: ${memory.conversationStyle}`,
       memory.favoriteJokes && `favorite jokes: ${memory.favoriteJokes}`,
       memory.loreQuestions && `recent lore: ${memory.loreQuestions}`
     ].filter(Boolean);

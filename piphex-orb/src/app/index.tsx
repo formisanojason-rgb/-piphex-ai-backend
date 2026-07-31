@@ -14,6 +14,7 @@ import * as SecureStore from 'expo-secure-store';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  Alert,
   Image,
   KeyboardAvoidingView,
   Modal,
@@ -30,12 +31,79 @@ import {
 const API_BASE = 'https://piphex-ai.onrender.com';
 const OPENING_LINE = "Well, look what the gates of Hell let back in. Welcome—the books have lowered their expectations accordingly.";
 const HISTORY_KEY = 'piphex-orb-history-v1';
+const MEMORY_KEY = 'piphex-memory-v1';
 const SPEECH_LEVEL_DB = -48;
 const END_OF_SPEECH_MS = 1100;
 const MIN_SPEECH_MS = 350;
 
 type OrbState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
 type Message = { role: 'user' | 'assistant'; content: string };
+type VisitorMemory = {
+  enabled: boolean;
+  visitorId: string;
+  preferredName: string;
+  favoriteCharacters: string;
+  booksRead: string;
+  spoilerPermission: string;
+  favoriteJokes: string;
+  sarcasmLevel: string;
+  favoriteTopics: string;
+  conversationStyle: string;
+  interactionCount: number;
+  loreQuestions: string;
+  unfinishedConversations: string;
+};
+type MemoryTextKey = 'preferredName' | 'favoriteCharacters' | 'booksRead' | 'favoriteJokes';
+
+const EMPTY_MEMORY: VisitorMemory = {
+  enabled: true,
+  visitorId: '',
+  preferredName: '',
+  favoriteCharacters: '',
+  booksRead: '',
+  spoilerPermission: 'spoiler-free',
+  favoriteJokes: '',
+  sarcasmLevel: 'medium',
+  favoriteTopics: '',
+  conversationStyle: 'natural',
+  interactionCount: 0,
+  loreQuestions: '',
+  unfinishedConversations: '',
+};
+
+function safeMemoryValue(value: unknown, maximum = 240) {
+  return String(value || '').trim().slice(0, maximum);
+}
+
+function rememberFrom(memory: VisitorMemory, message: string): VisitorMemory {
+  if (!memory.enabled) return memory;
+  const next = {
+    ...memory,
+    visitorId: memory.visitorId || `mobile-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    interactionCount: Math.min(10000, Number(memory.interactionCount || 0) + 1),
+  };
+  const rules: Array<[RegExp, MemoryTextKey]> = [
+    [/\b(?:my name is|call me)\s+([a-z][a-z '-]{0,38})/i, 'preferredName'],
+    [/\bmy favorite character is\s+(.{1,80})/i, 'favoriteCharacters'],
+    [/\b(?:i read|i have read|i finished)\s+(.{1,100})/i, 'booksRead'],
+    [/\bmy favorite joke is\s+(.{1,120})/i, 'favoriteJokes'],
+  ];
+  for (const [pattern, key] of rules) {
+    const match = message.match(pattern);
+    if (match) next[key] = safeMemoryValue(match[1].replace(/[.!?]+$/, ''));
+  }
+  const favoriteTopic = message.match(/\b(?:i (?:really )?(?:like|love)|my favorite (?:thing|topic) is)\s+(.{1,100})/i);
+  if (favoriteTopic) next.favoriteTopics = safeMemoryValue(favoriteTopic[1].replace(/[.!?]+$/, ''));
+  if (/\b(?:be|use) (?:more|extra) sarcastic\b|\bturn (?:up|on) (?:the )?sarcasm\b/i.test(message)) next.sarcasmLevel = 'high';
+  if (/\b(?:be|use) less sarcastic\b|\bturn down (?:the )?sarcasm\b/i.test(message)) next.sarcasmLevel = 'low';
+  if (/\b(?:normal|medium) sarcasm\b/i.test(message)) next.sarcasmLevel = 'medium';
+  if (/\b(?:spoilers are|spoilers? (?:are )?okay|allow spoilers|you can spoil)\b/i.test(message)) next.spoilerPermission = 'spoilers allowed';
+  if (/\b(?:no spoilers|spoiler[- ]free|do not spoil|don't spoil)\b/i.test(message)) next.spoilerPermission = 'spoiler-free';
+  if (/\b(?:keep it short|short answers|be concise)\b/i.test(message)) next.conversationStyle = 'concise';
+  if (/\b(?:tell me more|more detail|detailed answers)\b/i.test(message)) next.conversationStyle = 'detailed';
+  if (message.includes('?')) next.loreQuestions = safeMemoryValue([memory.loreQuestions, message].filter(Boolean).slice(-2).join(' | '));
+  return next;
+}
 
 async function errorMessage(response: Response, fallback: string) {
   try {
@@ -55,6 +123,7 @@ export default function PiphexOrbScreen() {
   const glow = useRef(new Animated.Value(0.35)).current;
   const [orbState, setOrbState] = useState<OrbState>('idle');
   const [history, setHistory] = useState<Message[]>([]);
+  const [memory, setMemory] = useState<VisitorMemory>(EMPTY_MEMORY);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [statusText, setStatusText] = useState('Tap the orb and speak');
@@ -86,6 +155,10 @@ export default function PiphexOrbScreen() {
     SecureStore.getItemAsync(HISTORY_KEY).then((value) => {
       if (!value) return;
       try { setHistory(JSON.parse(value).slice(-12)); } catch { /* Ignore damaged local history. */ }
+    });
+    SecureStore.getItemAsync(MEMORY_KEY).then((value) => {
+      if (!value) return;
+      try { setMemory({ ...EMPTY_MEMORY, ...JSON.parse(value), enabled: true }); } catch { /* Ignore damaged local memory. */ }
     });
     preparePlaybackAudio().catch(() => undefined);
   }, []);
@@ -146,6 +219,28 @@ export default function PiphexOrbScreen() {
     await SecureStore.setItemAsync(HISTORY_KEY, JSON.stringify(trimmed));
   }
 
+  async function updateMemory(message: string) {
+    const next = rememberFrom(memory, message);
+    setMemory(next);
+    await SecureStore.setItemAsync(MEMORY_KEY, JSON.stringify(next));
+    return next;
+  }
+
+  function confirmForgetMemory() {
+    Alert.alert('Forget Piphex memory?', 'This removes the personal details Piphex learned on this phone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Forget',
+        style: 'destructive',
+        onPress: () => {
+          setMemory(EMPTY_MEMORY);
+          void SecureStore.deleteItemAsync(MEMORY_KEY);
+          setStatusText('Personal memory cleared. The infernal ledger is blank.');
+        },
+      },
+    ]);
+  }
+
   async function speak(text: string, addToHistory = true, sourceHistory = history) {
     if (addToHistory) await saveHistory([...sourceHistory, { role: 'assistant', content: text }]);
     if (!soundOn) {
@@ -179,6 +274,7 @@ export default function PiphexOrbScreen() {
   async function askPiphex(message: string, sourceHistory = history) {
     const clean = message.trim();
     if (!clean) return;
+    const currentMemory = await updateMemory(clean);
     const withUser: Message[] = [...sourceHistory, { role: 'user' as const, content: clean }].slice(-12);
     await saveHistory(withUser);
     setOrbState('thinking');
@@ -186,7 +282,7 @@ export default function PiphexOrbScreen() {
     try {
       const response = await expoFetch(`${API_BASE}/api/chat`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: clean, history: sourceHistory.slice(-10), memory: { enabled: true } }),
+        body: JSON.stringify({ message: clean, history: sourceHistory.slice(-10), memory: currentMemory }),
       });
       if (!response.ok) throw new Error(await errorMessage(response, 'Piphex needs a moment.'));
       const body = await response.json();
@@ -318,6 +414,7 @@ export default function PiphexOrbScreen() {
                 <View key={`${item.role}-${index}`} style={[styles.bubble, item.role === 'user' ? styles.userBubble : styles.piphexBubble]}><Text style={styles.bubbleLabel}>{item.role === 'user' ? 'YOU' : 'PIPHEX'}</Text><Text style={styles.bubbleText}>{item.content}</Text></View>
               ))}
             </ScrollView>
+            <Pressable style={styles.forgetMemory} onPress={confirmForgetMemory}><Text style={styles.forgetMemoryText}>FORGET PERSONAL MEMORY</Text></Pressable>
             <View style={styles.inputRow}><TextInput value={draft} onChangeText={setDraft} placeholder="Ask Piphex…" placeholderTextColor="#8d817c" style={styles.input} multiline returnKeyType="send" onSubmitEditing={sendTyped} /><Pressable style={styles.send} onPress={sendTyped}><Text style={styles.sendText}>SEND</Text></Pressable></View>
           </View>
         </KeyboardAvoidingView>
@@ -349,6 +446,7 @@ const styles = StyleSheet.create({
   history: { maxHeight: 390 }, historyContent: { gap: 10, paddingBottom: 12 }, empty: { color: '#8e7e74', textAlign: 'center', paddingVertical: 30 },
   bubble: { padding: 13, borderRadius: 15, maxWidth: '90%' }, userBubble: { alignSelf: 'flex-end', backgroundColor: '#273b36' }, piphexBubble: { alignSelf: 'flex-start', backgroundColor: '#2a1110', borderWidth: 1, borderColor: '#5d2d1c' },
   bubbleLabel: { color: '#ca9851', fontSize: 9, fontWeight: '900', letterSpacing: 1.4, marginBottom: 5 }, bubbleText: { color: '#f0e4d7', fontSize: 15, lineHeight: 20 },
+  forgetMemory: { alignSelf: 'center', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16, borderWidth: 1, borderColor: '#6c4924', marginTop: 4 }, forgetMemoryText: { color: '#d6b77d', fontSize: 9, fontWeight: '800', letterSpacing: 1 },
   inputRow: { flexDirection: 'row', gap: 9, alignItems: 'flex-end', marginTop: 12 }, input: { flex: 1, minHeight: 48, maxHeight: 110, borderWidth: 1, borderColor: '#5d4430', borderRadius: 15, color: '#fff4e6', backgroundColor: '#090606', paddingHorizontal: 14, paddingVertical: 12, fontSize: 16 },
   send: { height: 48, paddingHorizontal: 18, borderRadius: 15, backgroundColor: '#9f351e', alignItems: 'center', justifyContent: 'center' }, sendText: { color: '#fff2dd', fontSize: 11, fontWeight: '900', letterSpacing: 1 },
 });
