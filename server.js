@@ -511,8 +511,8 @@ async function handleRealtime(req, res, corsHeaders) {
   };
 
   const form = new FormData();
-  form.set("sdp", sdp);
-  form.set("session", JSON.stringify(session));
+  form.set("sdp", new Blob([sdp], { type: "application/sdp" }), "offer.sdp");
+  form.set("session", new Blob([JSON.stringify(session)], { type: "application/json" }), "session.json");
 
   const apiResponse = await openAI("/v1/realtime/calls", {
     method: "POST",
