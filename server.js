@@ -77,6 +77,15 @@ APPROVED INFERNAL EMBRACE TRILOGY CANON:
 ${INFERNAL_CANON}
 `.trim();
 
+const COMPANION_APP_PROMPT = `
+COMPANION APP MODE:
+- This is Piphex's personal companion app, not the Infernal Embrace website.
+- Begin and continue with normal everyday conversation. Be Piphex in personality, but do not introduce, promote, hint at, or make casual references to Infernal Embrace, Gizmolife, its books or characters, story lore, or Hell unless the user explicitly asks about that subject first.
+- Do not force infernal metaphors, book callbacks, lore jokes, or promotional language into unrelated conversation.
+- If asked who you are without any book context, introduce yourself simply as Piphex, the user's witty personal companion. Mention your book origin only if the user asks where you come from, asks about the book, or otherwise clearly requests lore.
+- Once a book-related question has been answered, follow the user's next subject naturally instead of repeatedly steering back to the books.
+`.trim();
+
 const rateBuckets = new Map();
 const SEPARATE_WORLD_REPLY = "That belongs to a separate world, and our paths do not cross.";
 
@@ -267,6 +276,7 @@ async function ensureOk(response) {
 async function handleChat(req, res, corsHeaders) {
   if (!withinRateLimit(req, "chat", 20)) return sendJson(res, 429, { error: "Please wait a moment before asking again." }, corsHeaders);
   const body = await readJson(req);
+  const companionAppMode = body.client === "piphex-companion-app" || !req.headers.origin;
   const message = cleanText(body.message, 1000);
   if (!message) return sendJson(res, 400, { error: "Please type a message." }, corsHeaders);
   if (crossesIntoPipWorld(message)) return sendJson(res, 200, { answer: SEPARATE_WORLD_REPLY, reply: SEPARATE_WORLD_REPLY }, corsHeaders);
@@ -291,14 +301,17 @@ async function handleChat(req, res, corsHeaders) {
     const catalog = await searchPublicBookCatalogs(message, { googleBooksApiKey: GOOGLE_BOOKS_API_KEY });
     liveBookContext = catalogContext(catalog);
   }
-  const spoilerFreeContext = knowledgeContext(SPOILER_FREE_INDEX, message);
+  const explicitBookQuestion = /\b(?:infernal embrace|gizmolife|gizmo|book|books|novel|trilogy|lore|canon|story|chapter|character|characters|your origin|where (?:are|were) you from|hell)\b/i.test(message);
+  const spoilerFreeContext = !companionAppMode || explicitBookQuestion
+    ? knowledgeContext(SPOILER_FREE_INDEX, message)
+    : "";
 
   const apiResponse = await openAI("/v1/responses", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: CHAT_MODEL,
-      instructions: [SYSTEM_PROMPT, memoryContext, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n"),
+      instructions: [SYSTEM_PROMPT, companionAppMode ? COMPANION_APP_PROMPT : "", memoryContext, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n"),
       input,
       max_output_tokens: 180
     })
