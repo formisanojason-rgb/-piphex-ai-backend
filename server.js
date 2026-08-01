@@ -139,7 +139,8 @@ function visitorMemoryContext(memory) {
     ["Conversation style", memory.conversationStyle],
     ["Familiarity count", Number.isFinite(Number(memory.interactionCount)) ? String(Math.min(10000, Math.max(0, Number(memory.interactionCount)))) : ""],
     ["Previous lore questions", memory.loreQuestions],
-    ["Unfinished conversations", memory.unfinishedConversations]
+    ["Unfinished conversations", memory.unfinishedConversations],
+    ["Direct saved notes", memory.savedNotes]
   ];
   const lines = allowed
     .map(([label, value]) => [label, cleanText(Array.isArray(value) ? value.join(", ") : value, 300)])
