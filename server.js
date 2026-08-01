@@ -164,12 +164,12 @@ function sendJson(res, status, payload, headers = {}) {
   res.end(JSON.stringify(payload));
 }
 
-async function readJson(req) {
+async function readJson(req, maximum = 100_000) {
   const chunks = [];
   let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
-    if (size > 100_000) throw new Error("Request is too large.");
+    if (size > maximum) throw new Error("Request is too large.");
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
@@ -391,6 +391,35 @@ async function handleTranscribe(req, res, corsHeaders) {
   return sendJson(res, 200, { text }, corsHeaders);
 }
 
+async function handleVision(req, res, corsHeaders) {
+  if (!withinRateLimit(req, "vision", 10)) {
+    return sendJson(res, 429, { error: "Please wait a moment before asking Piphex to look again." }, corsHeaders);
+  }
+  const body = await readJson(req, 5_000_000);
+  const question = cleanText(body.question, 500) || "Describe the important visible objects and colors.";
+  const image = String(body.image || "");
+  if (!/^data:image\/(?:jpeg|png);base64,[A-Za-z0-9+/=]+$/.test(image) || image.length > 4_500_000) {
+    return sendJson(res, 400, { error: "A valid camera image is required." }, corsHeaders);
+  }
+
+  const apiResponse = await openAI("/v1/responses", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: CHAT_MODEL,
+      instructions: `${COMPANION_APP_PROMPT}\n\nCAMERA MODE: Answer only from this single user-requested image. Be honest when visibility, lighting, or color is uncertain. Identify ordinary colors, objects, text, and broad scene details. Do not identify a person, infer sensitive traits, diagnose health, or claim to know someone's emotions. Keep the answer natural and brief.`,
+      input: [{ role: "user", content: [
+        { type: "input_text", text: question },
+        { type: "input_image", image_url: image, detail: "low" }
+      ] }],
+      max_output_tokens: 160
+    })
+  });
+  const answer = conciseReply(responseText(await apiResponse.json()), 4, 90);
+  if (!answer) throw new Error("Piphex could not make out the camera image.");
+  return sendJson(res, 200, { answer, reply: answer }, corsHeaders);
+}
+
 async function handleRealtime(req, res, corsHeaders) {
   if (!withinRateLimit(req, "realtime", 6)) return sendJson(res, 429, { error: "Please wait before starting another voice session." }, corsHeaders);
   if (!OPENAI_API_KEY) return sendJson(res, 503, { error: "Voice is not configured." }, corsHeaders);
@@ -458,6 +487,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/chat") return await handleChat(req, res, headers);
     if (req.method === "POST" && url.pathname === "/api/speech") return await handleSpeech(req, res, headers);
     if (req.method === "POST" && url.pathname === "/api/transcribe") return await handleTranscribe(req, res, headers);
+    if (req.method === "POST" && url.pathname === "/api/vision") return await handleVision(req, res, headers);
     if (req.method === "POST" && url.pathname === "/api/realtime") return await handleRealtime(req, res, headers);
     return sendJson(res, 404, { error: "Not found." }, headers);
   } catch (error) {
