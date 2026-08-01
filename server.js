@@ -497,21 +497,11 @@ async function handleRealtime(req, res, corsHeaders) {
   const session = {
     type: "realtime",
     model: REALTIME_MODEL,
-    instructions: `${REALTIME_COMPANION_PROMPT}\n\nLANGUAGE:\nListen and respond in English only. Never switch languages, imitate foreign-sounding speech, or invent words because audio was unclear. If uncertain, briefly ask Jason to repeat himself.\n\nVOICE DELIVERY:\nSpeak in an older male voice: dry, lightly raspy, expressive, confident, and conversational. Vary pace subtly, allow brief natural pauses, soften during sincere moments, and use effortless deadpan timing. Never sound squeaky, childish, weak, whiny, constantly angry, robotic, melodramatic, or like an announcer.`,
-    max_output_tokens: 120,
+    instructions: `${REALTIME_COMPANION_PROMPT}\n\nVOICE DELIVERY:\nSpeak in an older male voice: dry, lightly raspy, expressive, confident, and conversational. Vary pace subtly, allow brief natural pauses, soften during sincere moments, and use effortless deadpan timing. Never sound squeaky, childish, weak, whiny, constantly angry, robotic, melodramatic, or like an announcer.`,
     audio: {
       input: {
-        noise_reduction: { type: "far_field" },
-        transcription: {
-          model: TRANSCRIBE_MODEL,
-          language: "en",
-          prompt: "English conversation with Jason. Piphex, Infernal Embrace, Gizmolife, work, home, food, plans, and everyday questions."
-        },
         turn_detection: {
           type: "server_vad",
-          threshold: 0.35,
-          prefix_padding_ms: 500,
-          silence_duration_ms: 750,
           create_response: true,
           interrupt_response: true
         }
