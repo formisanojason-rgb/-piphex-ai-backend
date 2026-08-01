@@ -321,7 +321,7 @@ async function handleChat(req, res, corsHeaders) {
     return sendJson(res, 200, { answer, reply: answer }, corsHeaders);
   }
 
-  const explicitBookQuestion = /\b(?:infernal embrace|gizmolife|gizmo|book|books|novel|trilogy|lore|canon|story|chapter|character|characters|your origin|where (?:are|were) you from|hell)\b/i.test(message);
+  const explicitBookQuestion = /\b(?:infernal embrace|gizmolife|gizmo|book|books|novel|trilogy|lore|canon|chapter|characters?|your origin|where (?:are|were) you from)\b/i.test(message);
   const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
   const memoryContext = visitorMemoryContext(body.memory);
   const input = history
@@ -334,7 +334,7 @@ async function handleChat(req, res, corsHeaders) {
   input.push({ role: "user", content: message });
 
   let liveBookContext = "";
-  if (isBookLookupRequest(message)) {
+  if ((!companionAppMode || explicitBookQuestion) && isBookLookupRequest(message)) {
     const catalog = await searchPublicBookCatalogs(message, { googleBooksApiKey: GOOGLE_BOOKS_API_KEY });
     liveBookContext = catalogContext(catalog);
   }
@@ -450,7 +450,7 @@ async function handleTranscribe(req, res, corsHeaders) {
   form.set("file", new Blob([audio], { type: contentType }), `piphex-recording.${extension}`);
   form.set("model", TRANSCRIBE_MODEL);
   form.set("language", "en");
-  form.set("prompt", "Piphex, Infernal Embrace, Gizmolife, Gizmo, dark romance, fantasy, horror.");
+  form.set("prompt", "Natural English conversation with Jason about everyday life, work, home, food, plans, hobbies, and practical questions.");
 
   const apiResponse = await openAI("/v1/audio/transcriptions", { method: "POST", body: form });
   const text = cleanText((await apiResponse.json()).text, 1000);
@@ -558,7 +558,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "POST" && url.pathname === "/api/realtime") return await handleRealtime(req, res, headers);
     return sendJson(res, 404, { error: "Not found." }, headers);
   } catch (error) {
-    console.error(error);
+    console.error(`Request failed: ${req.method} ${url.pathname}`, error);
     return sendJson(res, 500, { error: "Piphex needs a tiny moment. Please try again." }, headers);
   }
 });
