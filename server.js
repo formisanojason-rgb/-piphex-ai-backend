@@ -510,16 +510,20 @@ async function handleRealtime(req, res, corsHeaders) {
     }
   };
 
-  const form = new FormData();
-  form.set("sdp", new Blob([sdp], { type: "application/sdp" }), "offer.sdp");
-  form.set("session", new Blob([JSON.stringify(session)], { type: "application/json" }), "session.json");
+  const boundary = `piphex-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const multipart = Buffer.from([
+    `--${boundary}\r\nContent-Disposition: form-data; name="sdp"\r\nContent-Type: application/sdp\r\n\r\n${sdp}\r\n`,
+    `--${boundary}\r\nContent-Disposition: form-data; name="session"\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(session)}\r\n`,
+    `--${boundary}--\r\n`
+  ].join(""));
 
   const apiResponse = await openAI("/v1/realtime/calls", {
     method: "POST",
     headers: {
+      "Content-Type": `multipart/form-data; boundary=${boundary}`,
       "OpenAI-Safety-Identifier": `piphex-${Buffer.from(clientIp(req)).toString("base64url").slice(0, 32)}`
     },
-    body: form
+    body: multipart
   });
   const answerSdp = await apiResponse.text();
   res.writeHead(200, { "Content-Type": "application/sdp", "Cache-Control": "no-store", ...corsHeaders });
