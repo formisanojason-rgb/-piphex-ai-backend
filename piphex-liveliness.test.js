@@ -57,6 +57,7 @@ test("realtime voice uses the current model and supports interruption", () => {
   assert.match(source, /gpt-realtime/);
   assert.match(source, /Content-Type: application\/sdp/);
   assert.match(source, /Content-Type: application\/json/);
+  assert.doesNotMatch(source, /readText\(req, 200_000\)\)\.trim\(\)/);
   assert.match(source, /interrupt_response: true/);
   assert.match(source, /server_vad/);
 });

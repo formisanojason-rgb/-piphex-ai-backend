@@ -491,8 +491,8 @@ async function handleRealtime(req, res, corsHeaders) {
   if (!withinRateLimit(req, "realtime", 6)) return sendJson(res, 429, { error: "Please wait before starting another voice session." }, corsHeaders);
   if (!OPENAI_API_KEY) return sendJson(res, 503, { error: "Voice is not configured." }, corsHeaders);
 
-  const sdp = (await readText(req, 200_000)).trim();
-  if (!sdp.startsWith("v=0")) return sendJson(res, 400, { error: "Invalid voice session request." }, corsHeaders);
+  const sdp = (await readText(req, 200_000)).replace(/^\uFEFF/, "");
+  if (!sdp.trimStart().startsWith("v=0")) return sendJson(res, 400, { error: "Invalid voice session request." }, corsHeaders);
 
   const session = {
     type: "realtime",
