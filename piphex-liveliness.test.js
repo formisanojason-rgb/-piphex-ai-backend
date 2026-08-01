@@ -55,8 +55,8 @@ test("Piphex retains Munchy's food knowledge and only approved meatball humor", 
 
 test("realtime voice uses the current model and supports interruption", () => {
   assert.match(source, /gpt-realtime/);
-  assert.match(source, /type: "application\/sdp"/);
-  assert.match(source, /type: "application\/json"/);
+  assert.match(source, /Content-Type: application\/sdp/);
+  assert.match(source, /Content-Type: application\/json/);
   assert.match(source, /interrupt_response: true/);
   assert.match(source, /server_vad/);
 });
