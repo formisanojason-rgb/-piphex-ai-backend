@@ -320,6 +320,7 @@ async function handleChat(req, res, corsHeaders) {
     return sendJson(res, 200, { answer, reply: answer }, corsHeaders);
   }
 
+  const explicitBookQuestion = /\b(?:infernal embrace|gizmolife|gizmo|book|books|novel|trilogy|lore|canon|story|chapter|character|characters|your origin|where (?:are|were) you from|hell)\b/i.test(message);
   const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
   const memoryContext = visitorMemoryContext(body.memory);
   const input = history
@@ -327,7 +328,8 @@ async function handleChat(req, res, corsHeaders) {
       role: item?.role === "assistant" ? "assistant" : "user",
       content: cleanText(item?.content, 1200)
     }))
-    .filter((item) => item.content);
+    .filter((item) => item.content)
+    .filter((item) => !companionAppMode || explicitBookQuestion || item.role !== "assistant" || !/\b(?:infernal embrace|gizmolife|gizmo|book|novel|trilogy|lore|canon|chapter)\b/i.test(item.content));
   input.push({ role: "user", content: message });
 
   let liveBookContext = "";
@@ -335,7 +337,6 @@ async function handleChat(req, res, corsHeaders) {
     const catalog = await searchPublicBookCatalogs(message, { googleBooksApiKey: GOOGLE_BOOKS_API_KEY });
     liveBookContext = catalogContext(catalog);
   }
-  const explicitBookQuestion = /\b(?:infernal embrace|gizmolife|gizmo|book|books|novel|trilogy|lore|canon|story|chapter|character|characters|your origin|where (?:are|were) you from|hell)\b/i.test(message);
   const spoilerFreeContext = !companionAppMode || explicitBookQuestion
     ? knowledgeContext(SPOILER_FREE_INDEX, message)
     : "";
@@ -345,7 +346,9 @@ async function handleChat(req, res, corsHeaders) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: CHAT_MODEL,
-      instructions: [SYSTEM_PROMPT, companionAppMode ? COMPANION_APP_PROMPT : "", memoryContext, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n"),
+      instructions: companionAppMode
+        ? [explicitBookQuestion ? SYSTEM_PROMPT : "", COMPANION_APP_PROMPT, memoryContext, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n")
+        : [SYSTEM_PROMPT, memoryContext, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n"),
       input,
       max_output_tokens: companionAppMode ? 100 : 180,
       ...(wantsStream ? { stream: true } : {})
