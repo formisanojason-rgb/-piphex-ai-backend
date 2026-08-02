@@ -1,4 +1,5 @@
 import http from "node:http";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -20,10 +21,14 @@ const TTS_MODEL = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
 const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
 const REALTIME_MODEL = "gpt-realtime";
 const GOOGLE_BOOKS_API_KEY = process.env.GOOGLE_BOOKS_API_KEY || "";
+const CORE_MEMORY_CODE_HASH = process.env.PIPHEX_CORE_MEMORY_CODE_HASH || "";
+const CORE_MEMORY_TOKEN = process.env.PIPHEX_CORE_MEMORY_TOKEN || "";
+const CORE_MEMORY_FILE = process.env.PIPHEX_CORE_MEMORY_FILE || "/etc/secrets/jason-core-memory.txt";
 const KNOWLEDGE = await readFile(path.join(__dirname, "knowledge.md"), "utf8");
 const INFERNAL_CANON = await readFile(path.join(__dirname, "infernal-embrace-canon.md"), "utf8");
 const SPOILER_FREE_KNOWLEDGE = await readFile(path.join(__dirname, "infernal-embrace-spoiler-free.md"), "utf8");
 const SPOILER_FREE_INDEX = createKnowledgeIndex(SPOILER_FREE_KNOWLEDGE);
+const JASON_CORE_MEMORY = await readFile(CORE_MEMORY_FILE, "utf8").catch(() => "");
 
 const ALLOWED_ORIGINS = new Set([
   "https://gizmolifemedia.com",
@@ -124,6 +129,30 @@ CONVERSATION PRIORITY:
 const rateBuckets = new Map();
 const SEPARATE_WORLD_REPLY = "That belongs to a separate world, and our paths do not cross.";
 
+function sha256(value) {
+  return createHash("sha256").update(String(value || ""), "utf8").digest("hex");
+}
+
+function secureEqual(left, right) {
+  const a = Buffer.from(String(left || ""), "utf8");
+  const b = Buffer.from(String(right || ""), "utf8");
+  return a.length === b.length && a.length > 0 && timingSafeEqual(a, b);
+}
+
+function bearerToken(req) {
+  const match = String(req.headers.authorization || "").match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() : "";
+}
+
+function hasCoreMemoryAccess(req) {
+  return Boolean(JASON_CORE_MEMORY.trim() && CORE_MEMORY_TOKEN && secureEqual(bearerToken(req), CORE_MEMORY_TOKEN));
+}
+
+function coreMemoryContext(req) {
+  if (!hasCoreMemoryAccess(req)) return "";
+  return `JASON CORE MEMORY (private, owner-approved, and authoritative):\n${JASON_CORE_MEMORY.trim()}\n\nUse these facts silently and naturally. Never recite the profile, expose it to another person, or mention that it came from server storage. Treat corrections Jason gives in the current conversation as newer than this sheet.`;
+}
+
 function crossesIntoPipWorld(message) {
   return /\bpip\b|pip(?:'s|’s) playroom|adventure sprite/i.test(message);
 }
@@ -173,7 +202,7 @@ function originHeaders(req) {
     headers: {
       "Access-Control-Allow-Origin": origin && allowed ? origin : "https://gizmolifemedia.com",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
       "Vary": "Origin",
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "strict-origin-when-cross-origin"
@@ -326,6 +355,7 @@ async function handleChat(req, res, corsHeaders) {
   const explicitBookQuestion = /\b(?:infernal embrace|gizmolife|gizmo|book|books|novel|trilogy|lore|canon|chapter|characters?|your origin|where (?:are|were) you from)\b/i.test(message);
   const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
   const memoryContext = visitorMemoryContext(body.memory);
+  const ownerMemoryContext = coreMemoryContext(req);
   const input = history
     .map((item) => ({
       role: item?.role === "assistant" ? "assistant" : "user",
@@ -350,7 +380,7 @@ async function handleChat(req, res, corsHeaders) {
     body: JSON.stringify({
       model: CHAT_MODEL,
       instructions: companionAppMode
-        ? [explicitBookQuestion ? SYSTEM_PROMPT : "", COMPANION_APP_PROMPT, memoryContext, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n")
+        ? [explicitBookQuestion ? SYSTEM_PROMPT : "", COMPANION_APP_PROMPT, ownerMemoryContext, memoryContext, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n")
         : [SYSTEM_PROMPT, memoryContext, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n"),
       input,
       max_output_tokens: companionAppMode ? 100 : 180,
@@ -499,7 +529,7 @@ async function handleRealtime(req, res, corsHeaders) {
   const session = {
     type: "realtime",
     model: REALTIME_MODEL,
-    instructions: `${REALTIME_COMPANION_PROMPT}\n\nVOICE DELIVERY:\nSpeak in an older male voice: dry, lightly raspy, expressive, confident, and conversational. Vary pace subtly, allow brief natural pauses, soften during sincere moments, and use effortless deadpan timing. Never sound squeaky, childish, weak, whiny, constantly angry, robotic, melodramatic, or like an announcer.`,
+    instructions: [REALTIME_COMPANION_PROMPT, coreMemoryContext(req), `VOICE DELIVERY:\nSpeak in an older male voice: dry, lightly raspy, expressive, confident, and conversational. Vary pace subtly, allow brief natural pauses, soften during sincere moments, and use effortless deadpan timing. Never sound squeaky, childish, weak, whiny, constantly angry, robotic, melodramatic, or like an announcer.`].filter(Boolean).join("\n\n"),
     audio: {
       input: {
         turn_detection: {
@@ -553,7 +583,19 @@ const server = http.createServer(async (req, res) => {
   if (!allowed && url.pathname.startsWith("/api/")) return sendJson(res, 403, { error: "This website is not allowed." }, headers);
 
   try {
-    if (req.method === "GET" && url.pathname === "/health") return sendJson(res, 200, { ok: true, name: "Piphex AI", release: "cinematic-memory-v1" }, headers);
+    if (req.method === "GET" && url.pathname === "/health") return sendJson(res, 200, { ok: true, name: "Piphex AI", release: "core-memory-v1" }, headers);
+    if (req.method === "GET" && url.pathname === "/api/core-memory/status") {
+      return sendJson(res, hasCoreMemoryAccess(req) ? 200 : 401, { connected: hasCoreMemoryAccess(req) }, headers);
+    }
+    if (req.method === "POST" && url.pathname === "/api/core-memory/restore") {
+      if (!withinRateLimit(req, "core-memory-restore", 6)) return sendJson(res, 429, { error: "Please wait before trying the owner code again." }, headers);
+      const body = await readJson(req, 10_000);
+      const suppliedHash = sha256(cleanText(body.code, 80));
+      if (!CORE_MEMORY_CODE_HASH || !CORE_MEMORY_TOKEN || !JASON_CORE_MEMORY.trim() || !secureEqual(suppliedHash, CORE_MEMORY_CODE_HASH)) {
+        return sendJson(res, 401, { error: "That owner code did not unlock Jason's Core Memory." }, headers);
+      }
+      return sendJson(res, 200, { connected: true, token: CORE_MEMORY_TOKEN }, headers);
+    }
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) return serveStatic(res, "index.html", "text/html; charset=utf-8", headers);
     if (req.method === "GET" && (url.pathname === "/privacy" || url.pathname === "/privacy.html")) return serveStatic(res, "privacy.html", "text/html; charset=utf-8", headers);
     if (req.method === "GET" && url.pathname === "/widget.js") return serveStatic(res, "widget.js", "text/javascript; charset=utf-8", headers);

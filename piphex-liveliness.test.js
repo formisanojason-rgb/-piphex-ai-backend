@@ -30,8 +30,18 @@ test("Piphex has cinematic presence without pretending to be conscious", () => {
   assert.match(source, /brief natural pauses/);
 });
 
-test("the deployed health endpoint identifies the cinematic memory release", () => {
-  assert.match(source, /release: "cinematic-memory-v1"/);
+test("the deployed health endpoint identifies the protected core memory release", () => {
+  assert.match(source, /release: "core-memory-v1"/);
+});
+
+test("Jason Core Memory requires a private bearer token and restore code", () => {
+  assert.match(source, /PIPHEX_CORE_MEMORY_CODE_HASH/);
+  assert.match(source, /PIPHEX_CORE_MEMORY_TOKEN/);
+  assert.match(source, /timingSafeEqual/);
+  assert.match(source, /\/api\/core-memory\/restore/);
+  assert.match(source, /\/api\/core-memory\/status/);
+  assert.match(source, /coreMemoryContext\(req\)/);
+  assert.doesNotMatch(source, /Jason works for \*\*Doc/);
 });
 
 test("visitor memory is consent based and never IP based", () => {
