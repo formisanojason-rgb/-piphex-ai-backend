@@ -356,6 +356,10 @@ async function handleChat(req, res, corsHeaders) {
   const history = Array.isArray(body.history) ? body.history.slice(-10) : [];
   const memoryContext = visitorMemoryContext(body.memory);
   const ownerMemoryContext = coreMemoryContext(req);
+  const sharedPlace = companionAppMode ? cleanText(body.location?.label, 120) : "";
+  const locationContext = sharedPlace
+    ? `LOCATION AWARENESS: Jason has chosen to share only this approximate city/region while the app is open: ${sharedPlace}. Use it when he asks about nearby restaurants or places. Be clear that recommendations are suggestions, and never invent live hours, current ratings, availability, or an exact user address.`
+    : "";
   const input = history
     .map((item) => ({
       role: item?.role === "assistant" ? "assistant" : "user",
@@ -380,7 +384,7 @@ async function handleChat(req, res, corsHeaders) {
     body: JSON.stringify({
       model: CHAT_MODEL,
       instructions: companionAppMode
-        ? [explicitBookQuestion ? SYSTEM_PROMPT : "", COMPANION_APP_PROMPT, ownerMemoryContext, memoryContext, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n")
+        ? [explicitBookQuestion ? SYSTEM_PROMPT : "", COMPANION_APP_PROMPT, ownerMemoryContext, memoryContext, locationContext, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n")
         : [SYSTEM_PROMPT, memoryContext, liveBookContext, spoilerFreeContext].filter(Boolean).join("\n\n"),
       input,
       max_output_tokens: companionAppMode ? 100 : 180,
