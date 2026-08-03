@@ -34,6 +34,15 @@ test("the deployed health endpoint identifies the protected core memory release"
   assert.match(source, /release: "core-memory-v1"/);
 });
 
+test("companion personality modes preserve safety and work in chat, vision, and realtime", () => {
+  assert.match(source, /ANGEL MODE/);
+  assert.match(source, /CLASSIC MODE/);
+  assert.match(source, /AFTER DARK MODE \(verified adults only\)/);
+  assert.match(source, /Do not use hateful slurs/);
+  assert.match(source, /personalityPrompt\(body\.personalityMode\)/);
+  assert.match(source, /personalityPrompt\(req\.headers\["x-piphex-personality"\]\)/);
+});
+
 test("Jason Core Memory requires a private bearer token and restore code", () => {
   assert.match(source, /PIPHEX_CORE_MEMORY_CODE_HASH/);
   assert.match(source, /PIPHEX_CORE_MEMORY_TOKEN/);
