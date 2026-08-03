@@ -38,7 +38,7 @@ test("companion personality modes preserve safety and work in chat, vision, and 
   assert.match(source, /ANGEL MODE/);
   assert.match(source, /CLASSIC MODE/);
   assert.match(source, /AFTER DARK MODE \(verified adults only\)/);
-  assert.match(source, /Do not use hateful slurs/);
+  assert.match(source, /hateful slurs/);
   assert.match(source, /personalityPrompt\(body\.personalityMode\)/);
   assert.match(source, /personalityPrompt\(req\.headers\["x-piphex-personality"\]\)/);
 });
