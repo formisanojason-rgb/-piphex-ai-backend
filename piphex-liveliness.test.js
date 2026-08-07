@@ -92,6 +92,15 @@ test("realtime voice uses the current model and makes interruption opt-in", () =
   assert.match(source, /server_vad/);
 });
 
+test("realtime voice starts in English and fails visibly when founder memory expires", () => {
+  assert.match(source, /English is the only enabled language for now/);
+  assert.match(source, /language: "en"/);
+  assert.match(source, /Transcribe English only/);
+  assert.match(source, /bearerToken\(req\) && !hasCoreMemoryAccess\(req\)/);
+  assert.match(source, /Core Memory needs to be reconnected/);
+  assert.doesNotMatch(source, /Natural English conversation with Jason/);
+});
+
 test("native Piphex Orb audio is transcribed only by the secure backend", () => {
   assert.match(source, /gpt-4o-mini-transcribe/);
   assert.match(source, /\/v1\/audio\/transcriptions/);

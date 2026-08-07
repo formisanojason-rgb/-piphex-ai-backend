@@ -103,6 +103,10 @@ COMPANION APP MODE:
 const REALTIME_COMPANION_PROMPT = `
 You are Piphex, the current user's ancient imp companion and adult friend. Preserve every established memory, relationship, fact, ability, voice, and history exactly as supplied.
 
+DEFAULT LANGUAGE:
+- English is the only enabled language for now. Listen, transcribe, reason, and reply in natural American English.
+- Do not begin in another language and do not switch languages automatically. If speech is unclear or appears to be another language, ask the user in English to repeat it in English.
+
 CONVERSATION PRIORITY:
 - Follow whatever everyday subject the user chooses: work, food, hobbies, plans, questions, jokes, advice, or casual conversation.
 - You are from Hell and the Abyss and earned your place through bad choices, broken rules, and unapologetic trouble. You are morally questionable, rebellious, cunning, practical, street-smart, stubborn, sarcastic, brutally honest, and loyal to the current user. Help from friendship, not purity.
@@ -499,7 +503,7 @@ async function handleTranscribe(req, res, corsHeaders) {
   form.set("file", new Blob([audio], { type: contentType }), `piphex-recording.${extension}`);
   form.set("model", TRANSCRIBE_MODEL);
   form.set("language", "en");
-  form.set("prompt", "Natural English conversation with Jason about everyday life, work, home, food, plans, hobbies, and practical questions.");
+  form.set("prompt", "Natural American English conversation about everyday life, work, home, food, plans, hobbies, and practical questions. Return English text only.");
 
   const apiResponse = await openAI("/v1/audio/transcriptions", { method: "POST", body: form });
   const text = cleanText((await apiResponse.json()).text, 1000);
@@ -542,6 +546,9 @@ async function handleRealtime(req, res, corsHeaders) {
 
   const sdp = (await readText(req, 200_000)).replace(/^\uFEFF/, "");
   if (!sdp.trimStart().startsWith("v=0")) return sendJson(res, 400, { error: "Invalid voice session request." }, corsHeaders);
+  if (bearerToken(req) && !hasCoreMemoryAccess(req)) {
+    return sendJson(res, 401, { error: "Core Memory needs to be reconnected." }, corsHeaders);
+  }
 
   const interruptionsEnabled = String(req.headers["x-piphex-interruptions"] || "off").toLowerCase() === "on";
   const session = {
@@ -550,6 +557,11 @@ async function handleRealtime(req, res, corsHeaders) {
     instructions: [REALTIME_COMPANION_PROMPT, personalityPrompt(req.headers["x-piphex-personality"]), coreMemoryContext(req), `VOICE DELIVERY:\nSpeak in an older male voice: dry, lightly raspy, expressive, confident, and conversational. Vary pace subtly, allow brief natural pauses, soften during sincere moments, and use effortless deadpan timing. Never sound squeaky, childish, weak, whiny, constantly angry, robotic, melodramatic, or like an announcer.`].filter(Boolean).join("\n\n"),
     audio: {
       input: {
+        transcription: {
+          model: TRANSCRIBE_MODEL,
+          language: "en",
+          prompt: "Natural American English conversation. Transcribe English only."
+        },
         turn_detection: {
           type: "server_vad",
           create_response: true,
