@@ -53,6 +53,16 @@ test("Jason Core Memory requires a private bearer token and restore code", () =>
   assert.doesNotMatch(source, /Jason works for \*\*Doc/);
 });
 
+test("shared companion prompts never identify every customer as Jason", () => {
+  const appPrompt = source.match(/const COMPANION_APP_PROMPT = `[\s\S]*?`\.trim\(\);/)?.[0] || "";
+  const realtimePrompt = source.match(/const REALTIME_COMPANION_PROMPT = `[\s\S]*?`\.trim\(\);/)?.[0] || "";
+  assert.doesNotMatch(appPrompt, /\bJason(?:'s)?\b/);
+  assert.doesNotMatch(realtimePrompt, /\bJason(?:'s)?\b/);
+  assert.match(appPrompt, /current user/);
+  assert.match(realtimePrompt, /current user/);
+  assert.match(source, /JASON CORE MEMORY \(private, owner-approved, and authoritative\)/);
+});
+
 test("visitor memory is consent based and never IP based", () => {
   const memoryFunction = source.match(/function visitorMemoryContext\(memory\) \{[\s\S]*?\n\}/)?.[0] || "";
   assert.match(memoryFunction, /memory\.enabled !== true/);
@@ -72,12 +82,13 @@ test("Piphex retains Munchy's food knowledge and only approved meatball humor", 
   assert.match(source, /Munchy's location privacy is absolute/);
 });
 
-test("realtime voice uses the current model and supports interruption", () => {
+test("realtime voice uses the current model and makes interruption opt-in", () => {
   assert.match(source, /gpt-realtime/);
   assert.match(source, /Content-Type: application\/sdp/);
   assert.match(source, /Content-Type: application\/json/);
   assert.doesNotMatch(source, /readText\(req, 200_000\)\)\.trim\(\)/);
-  assert.match(source, /interrupt_response: true/);
+  assert.match(source, /x-piphex-interruptions/);
+  assert.match(source, /interrupt_response: interruptionsEnabled/);
   assert.match(source, /server_vad/);
 });
 
