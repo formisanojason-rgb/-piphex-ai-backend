@@ -9,13 +9,14 @@ export function consumeRateLimit(buckets, {
   kind,
   maximum,
   now = Date.now(),
-  windowMs = 60_000
+  windowMs = 60_000,
+  consume = true
 }) {
   const key = `${subject}:${kind}`;
   const recent = (buckets.get(key) || []).filter((stamp) => now - stamp < windowMs);
 
   if (recent.length >= maximum) {
-    buckets.set(key, recent);
+    if (consume) buckets.set(key, recent);
     return {
       allowed: false,
       limit: maximum,
@@ -24,12 +25,33 @@ export function consumeRateLimit(buckets, {
     };
   }
 
-  recent.push(now);
-  buckets.set(key, recent);
+  if (consume) {
+    recent.push(now);
+    buckets.set(key, recent);
+  }
   return {
     allowed: true,
     limit: maximum,
-    remaining: Math.max(0, maximum - recent.length),
+    remaining: Math.max(0, maximum - recent.length - (consume ? 0 : 1)),
     retryAfterSeconds: 0
+  };
+}
+
+export function consumeRateLimitsAtomically(buckets, requests, now = Date.now()) {
+  const previews = requests.map((request) => consumeRateLimit(buckets, {
+    ...request,
+    now,
+    consume: false
+  }));
+  const blockedIndex = previews.findIndex((status) => !status.allowed);
+
+  if (blockedIndex !== -1) {
+    return { allowed: false, blockedIndex, statuses: previews };
+  }
+
+  return {
+    allowed: true,
+    blockedIndex: -1,
+    statuses: requests.map((request) => consumeRateLimit(buckets, { ...request, now }))
   };
 }

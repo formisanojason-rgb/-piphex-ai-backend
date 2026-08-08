@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { catalogContext, isBookLookupRequest, searchPublicBookCatalogs } from "./book-sources.js";
 import { createKnowledgeIndex, knowledgeContext } from "./knowledge-retrieval.js";
 import { asksProtectedStoryQuestion, PROTECTED_STORY_REPLY } from "./spoiler-guard.js";
-import { boundedIntegerSetting, consumeRateLimit } from "./rate-limit.js";
+import { boundedIntegerSetting, consumeRateLimit, consumeRateLimitsAtomically } from "./rate-limit.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadLocalEnv(path.join(__dirname, ".env.local"));
@@ -576,17 +576,21 @@ async function handleRealtime(req, res, corsHeaders) {
   const accountId = cleanText(verifiedUser?.id, 100);
   let limit;
   if (accountId) {
-    const accountLimit = rateLimitStatus(req, "realtime-account", REALTIME_RATE_LIMIT_PER_MINUTE, `user:${accountId}`);
-    if (!accountLimit.allowed) {
-      limit = accountLimit;
-    } else {
-      const ipLimit = rateLimitStatus(req, "realtime-authenticated-ip", REALTIME_AUTHENTICATED_IP_RATE_LIMIT_PER_MINUTE);
-      limit = !ipLimit.allowed
-        ? ipLimit
-        : accountLimit.remaining <= ipLimit.remaining
-          ? accountLimit
-          : ipLimit;
-    }
+    const combinedLimit = consumeRateLimitsAtomically(rateBuckets, [
+      {
+        subject: `user:${accountId}`,
+        kind: "realtime-account",
+        maximum: REALTIME_RATE_LIMIT_PER_MINUTE
+      },
+      {
+        subject: `ip:${clientIp(req)}`,
+        kind: "realtime-authenticated-ip",
+        maximum: REALTIME_AUTHENTICATED_IP_RATE_LIMIT_PER_MINUTE
+      }
+    ]);
+    limit = combinedLimit.allowed
+      ? combinedLimit.statuses.reduce((lowest, status) => status.remaining < lowest.remaining ? status : lowest)
+      : combinedLimit.statuses[combinedLimit.blockedIndex];
   } else {
     limit = rateLimitStatus(req, "realtime-guest", REALTIME_GUEST_RATE_LIMIT_PER_MINUTE);
   }
