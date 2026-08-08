@@ -6,11 +6,7 @@ import { fileURLToPath } from "node:url";
 import { catalogContext, isBookLookupRequest, searchPublicBookCatalogs } from "./book-sources.js";
 import { createKnowledgeIndex, knowledgeContext } from "./knowledge-retrieval.js";
 import { asksProtectedStoryQuestion, PROTECTED_STORY_REPLY } from "./spoiler-guard.js";
-
-function positiveIntegerSetting(value, fallback, minimum = 1) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? Math.max(minimum, Math.floor(parsed)) : fallback;
-}
+import { boundedIntegerSetting, consumeRateLimit } from "./rate-limit.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 loadLocalEnv(path.join(__dirname, ".env.local"));
@@ -24,17 +20,20 @@ const CHAT_MODEL = process.env.OPENAI_CHAT_MODEL || "gpt-4.1-mini";
 const TTS_MODEL = process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts";
 const TRANSCRIBE_MODEL = process.env.OPENAI_TRANSCRIBE_MODEL || "gpt-4o-mini-transcribe";
 const REALTIME_MODEL = "gpt-realtime";
-const REALTIME_RATE_LIMIT_PER_MINUTE = positiveIntegerSetting(process.env.PIPHEX_REALTIME_RATE_LIMIT_PER_MINUTE, 30, 6);
-const REALTIME_GUEST_RATE_LIMIT_PER_MINUTE = positiveIntegerSetting(process.env.PIPHEX_REALTIME_GUEST_RATE_LIMIT_PER_MINUTE, 12, 6);
+const REALTIME_RATE_LIMIT_PER_MINUTE = boundedIntegerSetting(process.env.PIPHEX_REALTIME_RATE_LIMIT_PER_MINUTE, 30, { minimum: 6, maximum: 120 });
+const REALTIME_GUEST_RATE_LIMIT_PER_MINUTE = boundedIntegerSetting(process.env.PIPHEX_REALTIME_GUEST_RATE_LIMIT_PER_MINUTE, 12, { minimum: 6, maximum: 60 });
+const REALTIME_AUTHENTICATED_IP_RATE_LIMIT_PER_MINUTE = boundedIntegerSetting(process.env.PIPHEX_REALTIME_AUTHENTICATED_IP_RATE_LIMIT_PER_MINUTE, 60, { minimum: 12, maximum: 300 });
 const GOOGLE_BOOKS_API_KEY = process.env.GOOGLE_BOOKS_API_KEY || "";
 const SUPABASE_URL = (process.env.SUPABASE_URL || "https://bruebpqbpircmadcybzy.supabase.co").replace(/\/$/, "");
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY || "sb_publishable_vWCLLTdSL9gKECiIyHS72A_c9mW37EF";
 const CORE_MEMORY_FILE = process.env.PIPHEX_CORE_MEMORY_FILE || "/etc/secrets/jason-core-memory.txt";
 const FOUNDER_CORE_ID = "piphex-founder-core";
-const FOUNDER_CORE_EMAILS = new Set([
-  "formisanojason@icloud.com",
-  "cdailmomof5@hotmail.com"
-]);
+const FOUNDER_CORE_EMAILS = new Set(
+  String(process.env.PIPHEX_FOUNDER_EMAILS || "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean)
+);
 const KNOWLEDGE = await readFile(path.join(__dirname, "knowledge.md"), "utf8");
 const INFERNAL_CANON = await readFile(path.join(__dirname, "infernal-embrace-canon.md"), "utf8");
 const SPOILER_FREE_KNOWLEDGE = await readFile(path.join(__dirname, "infernal-embrace-spoiler-free.md"), "utf8");
@@ -171,13 +170,24 @@ async function authenticatedUser(req) {
   if (!token) return null;
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) throw httpError("Account verification is not configured.", 503);
 
-  const response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
-    headers: {
-      apikey: SUPABASE_PUBLISHABLE_KEY,
-      Authorization: `Bearer ${token}`
-    }
-  });
-  if (!response.ok) throw httpError("Your Piphex login has expired. Please log in again.", 401);
+  let response;
+  try {
+    response = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+      headers: {
+        apikey: SUPABASE_PUBLISHABLE_KEY,
+        Authorization: `Bearer ${token}`
+      },
+      signal: AbortSignal.timeout(10_000)
+    });
+  } catch {
+    throw httpError("Account verification is temporarily unavailable. Please try again.", 503);
+  }
+  if ([400, 401, 403].includes(response.status)) {
+    throw httpError("Your Piphex login has expired. Please log in again.", 401);
+  }
+  if (!response.ok) {
+    throw httpError("Account verification is temporarily unavailable. Please try again.", 503);
+  }
   return await response.json();
 }
 
@@ -250,26 +260,7 @@ function clientIp(req) {
 }
 
 function rateLimitStatus(req, kind, maximum, subject = `ip:${clientIp(req)}`) {
-  const now = Date.now();
-  const key = `${subject}:${kind}`;
-  const recent = (rateBuckets.get(key) || []).filter((stamp) => now - stamp < 60_000);
-  if (recent.length >= maximum) {
-    rateBuckets.set(key, recent);
-    return {
-      allowed: false,
-      limit: maximum,
-      remaining: 0,
-      retryAfterSeconds: Math.max(1, Math.ceil((60_000 - (now - recent[0])) / 1000))
-    };
-  }
-  recent.push(now);
-  rateBuckets.set(key, recent);
-  return {
-    allowed: true,
-    limit: maximum,
-    remaining: Math.max(0, maximum - recent.length),
-    retryAfterSeconds: 0
-  };
+  return consumeRateLimit(rateBuckets, { subject, kind, maximum });
 }
 
 function withinRateLimit(req, kind, maximum) {
@@ -583,8 +574,22 @@ async function handleRealtime(req, res, corsHeaders) {
 
   const verifiedUser = await authenticatedUser(req);
   const accountId = cleanText(verifiedUser?.id, 100);
-  const maximum = accountId ? REALTIME_RATE_LIMIT_PER_MINUTE : REALTIME_GUEST_RATE_LIMIT_PER_MINUTE;
-  const limit = rateLimitStatus(req, "realtime", maximum, accountId ? `user:${accountId}` : undefined);
+  let limit;
+  if (accountId) {
+    const accountLimit = rateLimitStatus(req, "realtime-account", REALTIME_RATE_LIMIT_PER_MINUTE, `user:${accountId}`);
+    if (!accountLimit.allowed) {
+      limit = accountLimit;
+    } else {
+      const ipLimit = rateLimitStatus(req, "realtime-authenticated-ip", REALTIME_AUTHENTICATED_IP_RATE_LIMIT_PER_MINUTE);
+      limit = !ipLimit.allowed
+        ? ipLimit
+        : accountLimit.remaining <= ipLimit.remaining
+          ? accountLimit
+          : ipLimit;
+    }
+  } else {
+    limit = rateLimitStatus(req, "realtime-guest", REALTIME_GUEST_RATE_LIMIT_PER_MINUTE);
+  }
   const rateHeaders = {
     "RateLimit-Limit": String(limit.limit),
     "RateLimit-Remaining": String(limit.remaining),

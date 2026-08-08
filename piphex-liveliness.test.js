@@ -45,9 +45,10 @@ test("companion personality modes preserve safety and work in chat, vision, and 
 
 test("founder core memory is selected only by verified Supabase email", () => {
   assert.match(source, /const FOUNDER_CORE_ID = "piphex-founder-core"/);
-  assert.match(source, /"formisanojason@icloud\.com"/);
-  assert.match(source, /"cdailmomof5@hotmail\.com"/);
+  assert.match(source, /PIPHEX_FOUNDER_EMAILS/);
+  assert.match(source, /\.split\(","\)/);
   assert.match(source, /\/auth\/v1\/user/);
+  assert.match(source, /AbortSignal\.timeout\(10_000\)/);
   assert.match(source, /FOUNDER_CORE_EMAILS\.has\(email\)/);
   assert.match(source, /await coreMemoryContext\(req\)/);
   assert.doesNotMatch(source, /PIPHEX_CORE_MEMORY_CODE_HASH/);
