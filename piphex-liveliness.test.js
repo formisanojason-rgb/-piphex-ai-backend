@@ -31,7 +31,7 @@ test("Piphex has cinematic presence without pretending to be conscious", () => {
 });
 
 test("the deployed health endpoint identifies the protected core memory release", () => {
-  assert.match(source, /release: "core-memory-v1"/);
+  assert.match(source, /release: FOUNDER_CORE_ID/);
 });
 
 test("companion personality modes preserve safety and work in chat, vision, and realtime", () => {
@@ -43,13 +43,17 @@ test("companion personality modes preserve safety and work in chat, vision, and 
   assert.match(source, /personalityPrompt\(req\.headers\["x-piphex-personality"\]\)/);
 });
 
-test("Jason Core Memory requires a private bearer token and restore code", () => {
-  assert.match(source, /PIPHEX_CORE_MEMORY_CODE_HASH/);
-  assert.match(source, /PIPHEX_CORE_MEMORY_TOKEN/);
-  assert.match(source, /timingSafeEqual/);
-  assert.match(source, /\/api\/core-memory\/restore/);
-  assert.match(source, /\/api\/core-memory\/status/);
-  assert.match(source, /coreMemoryContext\(req\)/);
+test("founder core memory is selected only by verified Supabase email", () => {
+  assert.match(source, /const FOUNDER_CORE_ID = "piphex-founder-core"/);
+  assert.match(source, /"formisanojason@icloud\.com"/);
+  assert.match(source, /"cdailmomof5@hotmail\.com"/);
+  assert.match(source, /\/auth\/v1\/user/);
+  assert.match(source, /FOUNDER_CORE_EMAILS\.has\(email\)/);
+  assert.match(source, /await coreMemoryContext\(req\)/);
+  assert.doesNotMatch(source, /PIPHEX_CORE_MEMORY_CODE_HASH/);
+  assert.doesNotMatch(source, /PIPHEX_CORE_MEMORY_TOKEN/);
+  assert.doesNotMatch(source, /\/api\/core-memory\/restore/);
+  assert.doesNotMatch(source, /\/api\/core-memory\/status/);
   assert.doesNotMatch(source, /Jason works for \*\*Doc/);
 });
 
@@ -60,7 +64,7 @@ test("shared companion prompts never identify every customer as Jason", () => {
   assert.doesNotMatch(realtimePrompt, /\bJason(?:'s)?\b/);
   assert.match(appPrompt, /current user/);
   assert.match(realtimePrompt, /current user/);
-  assert.match(source, /JASON CORE MEMORY \(private, owner-approved, and authoritative\)/);
+  assert.match(source, /PIPHEX FOUNDER CORE/);
 });
 
 test("visitor memory is consent based and never IP based", () => {
@@ -82,22 +86,23 @@ test("Piphex retains Munchy's food knowledge and only approved meatball humor", 
   assert.match(source, /Munchy's location privacy is absolute/);
 });
 
-test("realtime voice uses the current model and makes interruption opt-in", () => {
+test("realtime voice uses the current model and never interrupts playback", () => {
   assert.match(source, /gpt-realtime/);
   assert.match(source, /Content-Type: application\/sdp/);
   assert.match(source, /Content-Type: application\/json/);
   assert.doesNotMatch(source, /readText\(req, 200_000\)\)\.trim\(\)/);
-  assert.match(source, /x-piphex-interruptions/);
-  assert.match(source, /interrupt_response: interruptionsEnabled/);
+  assert.doesNotMatch(source, /x-piphex-interruptions/);
+  assert.match(source, /interrupt_response: false/);
   assert.match(source, /server_vad/);
 });
 
-test("realtime voice starts in English and fails visibly when founder memory expires", () => {
+test("realtime voice starts in English and authenticates founder memory with Supabase", () => {
   assert.match(source, /English is the only enabled language for now/);
   assert.match(source, /language: "en"/);
   assert.match(source, /Transcribe English only/);
-  assert.match(source, /bearerToken\(req\) && !hasCoreMemoryAccess\(req\)/);
-  assert.match(source, /Core Memory needs to be reconnected/);
+  assert.match(source, /authenticatedUser\(req\)/);
+  assert.match(source, /Your Piphex login has expired/);
+  assert.doesNotMatch(source, /hasCoreMemoryAccess/);
   assert.doesNotMatch(source, /Natural English conversation with Jason/);
 });
 
